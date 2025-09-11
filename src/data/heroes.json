@@ -1,0 +1,11 @@
+[
+  {
+    "key": "rudy",
+    "name": "Rudy",
+    "role": "Tank",
+    "element": "Terre",
+    "skills": ["Provocation", "Bouclier équipe", "Réduction dégâts"],
+    "build": "Set Défense + PV (PV%/DEF%/VIT)",
+    "notes": "Très solide early PvE, bon en GvG défensif."
+  }
+]
