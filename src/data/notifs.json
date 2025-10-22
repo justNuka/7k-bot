@@ -1,0 +1,38 @@
+[
+  {
+    "id": "preset_cr",
+    "roleId": "1428044509266317575",
+    "channelId": "1421994689241808997",
+    "spec": "0 18 * * *",
+    "tz": "Europe/Paris",
+    "message": "🔔 <@&ROLE> Pensez au **Castle Rush** (avant 02:00) !",
+    "createdBy": "1415709095863914556"
+  },
+  {
+    "id": "preset_daily",
+    "roleId": "1428044554610934052",
+    "channelId": "1421994689241808997",
+    "spec": "0 18 * * *",
+    "tz": "Europe/Paris",
+    "message": "🧱 <@&ROLE> Pensez aux **dailies de guilde** !",
+    "createdBy": "1415709095863914556"
+  },
+  {
+    "id": "preset_gvg_prep",
+    "roleId": "1428044624450031638",
+    "channelId": "1421994689241808997",
+    "spec": "0 2 * * 4",
+    "tz": "Europe/Paris",
+    "message": "⚠️ <@&ROLE> **GvG** demain → préparez vos **défenses** (équipes / gear) !",
+    "createdBy": "1415709095863914556"
+  },
+  {
+    "id": "preset_gvg_start",
+    "roleId": "1428044624450031638",
+    "channelId": "1421994689241808997",
+    "spec": "0 13 * * 4",
+    "tz": "Europe/Paris",
+    "message": "⚔️ <@&ROLE> **GvG** commence — bons combats !",
+    "createdBy": "1415709095863914556"
+  }
+]

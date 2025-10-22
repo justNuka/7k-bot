@@ -1,4 +1,4 @@
-// src/utils/send.ts (helper)
+// Utils pour envoyer un message dans un channel (verif du type de channel)
 
 import type {
   Client,

@@ -1,168 +1,231 @@
 // Dotenv
 import 'dotenv/config';
 
+// DB imports
+import { runMigrations, migrateFromJsonIfEmpty } from './db/init.js';
+
 // Discord imports
-import { Client, GatewayIntentBits, EmbedBuilder, ActivityType } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder, ActivityType, Partials } from 'discord.js';
 
 // Lib imports
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import cron from 'node-cron';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 
-// JSON imports
-import heroes from './data/heroes.json' with { type: 'json' };
-import tier from './data/tierlist.json' with { type: 'json' };
-import banners from './data/banners.json' with { type: 'json' };
+// Notifs utils
+import { loadNotifs } from './jobs/notifs.js';
+import { ensurePresetNotifs } from './jobs/notifs.js';
+import { reloadAllNotifs } from './jobs/notifs.js';
+import { handleNotifButton } from './handlers/notifButtons.js';
+
+// Commands
+import * as helpCmd from './commands/help.js';
+import * as helpadminCmd from './commands/helpadmin.js';
+import * as gdocCmd from './commands/gdoc.js';
+import * as infoserveurCmd from './commands/infoserveur.js';
+import * as oubliCrCmd from './commands/oubli-cr.js';
+import * as lowScoreCmd from './commands/low-score.js';
+import * as notifCmd from './commands/notif.js';
+import * as notifPanelCmd from './commands/notifpanel.js';
+import * as banniereCmd from './commands/banniere.js';
+import * as rolesetCmd from './commands/roleset.js';
+import * as scrapeCmd from './commands/scrape.js';
+import * as candidaturesCmd from './commands/candidatures.js';
+import * as absenceCmd from './commands/absence.js';
+import * as kickCmd from './commands/kick.js';
+import * as ytCmd from './commands/yt.js';
+import * as ytrouteCmd from './commands/ytroute.js';
+import * as signalementCmd from './commands/signalement.js';
 
 // Utils
-import { sendToChannel } from './utils/send.js';
+import { sendToChannel } from './utils/send.js'; // envoi de messages
+import { onGuildMemberAdd } from './handlers/memberWelcome.js'; // welcome + auto-assign recrues
+
+// Jobs
+import { registerWeeklyResetJob } from './jobs/crWeeklyReset.js'; // import du job hebdo de reset CR
+import { registerScrapeJob } from './jobs/scrapeNetmarble.js'; // import du job de scraping
+import { startAbsenceCleanup, cleanupOnce } from './jobs/absences.js'; // import du job de purge des absences
+import { registerYTWatchJob } from './jobs/ytWatch.js'; // import du job de veille YT
+
+// Helpers
+import { onCandidatureMessage } from './handlers/candidatureWatcher.js';
+import { handleCandidaturesButton } from './commands/candidatures.js';
+import { readJson, writeJson } from './utils/storage.js';
+import { refreshPanelAll } from './utils/notifPanel.js';
+
+// Types
+type CRCounters = Record<string, number>;
+
+// HTTP Server
+import { startHttpServer } from './http/server.js';
+import { bindDiscordClient } from './http/context.js';
+
+
+// ------------------------------------------------------------------------ //
+
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const bannersPath = path.resolve(process.cwd(), 'src/data/banners.json');
+// Map des commandes
+const commandMap = new Map<string, { execute: Function }>([
+  ['help', helpCmd],
+  ['helpadmin', helpadminCmd],
+  ['gdoc', gdocCmd],
+  ['infoserveur', infoserveurCmd],
+  ['oubli-cr', oubliCrCmd],
+  ['low-score', lowScoreCmd],
+  ['notif', notifCmd],
+  ['notifpanel', notifPanelCmd],
+  ['banniere', banniereCmd],
+  ['roleset', rolesetCmd],
+  ['scrape', scrapeCmd],
+  ['candidatures', candidaturesCmd],
+  ['absence', absenceCmd],
+  ['kick', kickCmd],
+  ['yt', ytCmd],
+  ['ytroute', ytrouteCmd],
+  ['signalement', signalementCmd],
+]);
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+  ],
+  partials: [Partials.Channel],
 });
 
+// Vérif que le bot est prêt
 client.once('clientReady', async () => {
   console.log(`Connecté comme ${client.user?.tag}`);
+
+  registerWeeklyResetJob(client); // job CR hebdo
+
+  registerScrapeJob(client); // job scraping Netmarble
+
+  await cleanupOnce();       // purge immédiate au boot
+  startAbsenceCleanup();     // planifie la purge quotidienne
+
+  await refreshPanelAll(client); // refresh du panneau de notifs au boot
+
+  registerYTWatchJob(client); // job de veille YouTube
+
+  runMigrations();
+  await migrateFromJsonIfEmpty();
+
+  bindDiscordClient(client); // bind le client Discord au contexte HTTP
+  await startHttpServer(client); // démarre le serveur HTTP pour envoyer les données au dashboard
+
   client.user?.setPresence({
-    activities: [{ name: 'Seven Knights Rebirth', type: ActivityType.Watching }],
+    activities: [{ name: 'Masamune Guild Server', type: ActivityType.Watching }],
     status: 'online'
   });
   if (process.env.ANNOUNCE_CHANNEL_ID) {
-    await sendToChannel(client, process.env.ANNOUNCE_CHANNEL_ID, '✅ Bot en ligne');
+    await sendToChannel(client, process.env.ANNOUNCE_CHANNEL_ID, '✅ Bibou au rapport ! Le bot est en ligne et fonctionnel.');
+  }
+  try {
+    // 1) s'assurer des presets (création/màj si .env est rempli)
+    await ensurePresetNotifs(client, client.user?.id || 'system');
+
+    // 2) charger les notifs depuis le fichier et les (re)lancer
+    const notifs = await loadNotifs();
+    reloadAllNotifs(client, notifs);
+
+    console.log(`[NOTIF] ${notifs.length} notification(s) planifiée(s).`);
+    console.log('[NOTIF] scheduler prêt.');
+  } catch (e) {
+    console.error('[NOTIF] init failed:', e);
   }
 });
 
-// /time reset
-async function handleTime(subtype: string) {
-  if (subtype !== 'reset') return 'Type inconnu.';
-  // ex: reset quotidien à 05:00 Europe/Paris
-  const now = dayjs().tz(process.env.RESET_CRON_TZ || 'Europe/Paris');
-  const next = now.hour() < 5 ? now.hour(5).minute(0).second(0) : now.add(1,'day').hour(5).minute(0).second(0);
-  const diff = next.diff(now, 'minute');
-  return `Prochain reset: **${next.format('DD/MM HH:mm')}** (${diff} min).`;
-}
-
-// /calc gemmes
-function handleCalc(gemmes: number, parJour: number, jusquau: string) {
-  const now = dayjs();
-  const end = dayjs(jusquau);
-  if (!end.isValid() || end.isBefore(now)) return 'Date invalide.';
-  const days = end.diff(now, 'day');
-  const total = gemmes + days * parJour;
-  const pulls = Math.floor(total / 300); // ex: 300 gemmes par pull
-  return `D’ici le ${end.format('DD/MM')}: **${total}** gemmes ≈ **${pulls} pulls**.`;
-}
-
-// /hero
-function handleHero(nom: string) {
-  const key = nom.toLowerCase().trim();
-  const h = (heroes as any[]).find(x => x.key === key || x.name.toLowerCase() === key);
-  if (!h) return 'Héros introuvable.';
-  const embed = new EmbedBuilder()
-    .setTitle(`${h.name} — ${h.role} (${h.element})`)
-    .setDescription(h.notes || '')
-    .addFields(
-      { name: 'Skills', value: (h.skills || []).join(' • ') || '—' },
-      { name: 'Build', value: h.build || '—' },
-    )
-    .setFooter({ text: '7K Rebirth Bot' });
-  return { embed };
-}
-
-// /tier
-async function handleTier(mode: 'pvp'|'pve') {
-  const list = (tier as any)[mode] as Array<{name:string;tier:string;notes?:string}>;
-  if (!list?.length) return 'Pas de données.';
-  const lines = list.map(x => `**${x.tier}** — ${x.name}${x.notes ? ` — _${x.notes}_` : ''}`).join('\n');
-  const embed = new EmbedBuilder()
-    .setTitle(`Tierlist ${mode.toUpperCase()}`)
-    .setDescription(lines)
-    .setFooter({ text: '7K Rebirth Bot' });
-  return { embed };
-}
-
-// Get next banner
-function nextBanner() {
-  const now = dayjs();
-  const upcoming = (banners as any[]).filter(b => dayjs(b.end).isAfter(now))
-    .sort((a,b)=> dayjs(a.start).valueOf()-dayjs(b.start).valueOf());
-  return upcoming[0];
-}
-
-// Add a banner
-async function addBanner(name: string, start: string, end: string) {
-  const arr = banners as any[];
-  arr.push({ name, start, end });
-  await fs.writeFile(bannersPath, JSON.stringify(arr, null, 2), 'utf8');
-}
-
+// Création des interactions
 client.on('interactionCreate', async (i) => {
-  if (!i.isChatInputCommand()) return;
   try {
-    if (i.commandName === 'time') {
-      const type = i.options.getString('type', true);
-      await i.reply(await handleTime(type));
-    } else if (i.commandName === 'calc') {
-      const g = i.options.getInteger('gemmes', true);
-      const pj = i.options.getInteger('par_jour', true);
-      const d = i.options.getString('jusquau', true);
-      await i.reply(handleCalc(g, pj, d));
-    } else if (i.commandName === 'hero') {
-      const nom = i.options.getString('nom', true);
-      const res = handleHero(nom);
-      if (typeof res === 'string') return i.reply(res);
-      await i.reply({ embeds: [res.embed] });
-    } else if (i.commandName === 'tier') {
-      const mode = i.options.getString('mode', true) as 'pvp'|'pve';
-      const res = await handleTier(mode);
-      if (typeof res === 'string') return i.reply(res);
-      await i.reply({ embeds: [res.embed] });
-    } else if (i.commandName === 'banner') {
-      const sub = i.options.getSubcommand();
-      if (sub === 'next') {
-        const b = nextBanner();
-        if (!b) return i.reply('Aucune bannière à venir.');
-        const start = dayjs(b.start).tz('Europe/Paris').format('DD/MM HH:mm');
-        const end = dayjs(b.end).tz('Europe/Paris').format('DD/MM HH:mm');
-        return i.reply(`**${b.name}** — du ${start} au ${end} (heure Paris).`);
+    // Buttons
+    if (i.isButton()) {
+      // 1) Notif toggles
+      if (i.customId.startsWith('notif:toggle:')) {
+        await handleNotifButton(i);
+        await refreshPanelAll(i.client);
+        return;
       }
-      if (sub === 'list') {
-        const lines = (banners as any[]).map(b =>
-          `• ${b.name} — ${dayjs(b.start).tz('Europe/Paris').format('DD/MM')} → ${dayjs(b.end).tz('Europe/Paris').format('DD/MM')}`
-        ).join('\n');
-        return i.reply(lines || 'Aucune bannière.');
+
+      // 2) Confirmation reset CR
+      if (i.customId.startsWith('cr:confirm:resetTotal:')) {
+        const yes = i.customId.endsWith(':yes');
+        if (!yes) return i.update({ content: 'Opération annulée.', components: [] });
+        const counters = await readJson<CRCounters>('src/data/crCounters.json', {});
+        for (const k of Object.keys(counters)) delete counters[k];
+        await writeJson('src/data/crCounters.json', counters);
+        await i.update({ content: '✅ RESET global effectué.', components: [] });
+        return;
       }
-      if (sub === 'add') {
-        // Optionnel: restreindre aux admins
-        if (!i.memberPermissions?.has('ManageGuild')) {
-          return i.reply({ content: 'Réservé aux admins.', ephemeral: true });
+
+      // 3) Candidatures
+      if (i.customId.startsWith('cand:')) {
+        return handleCandidaturesButton(i);
+      }
+
+      return;
+    }
+
+    // Commands
+    if (i.isChatInputCommand()) {
+      const cmd = commandMap.get(i.commandName);
+      if (!cmd) return i.reply({ content: 'Commande inconnue.', ephemeral: true });
+      await cmd.execute(i);
+      return;
+    }
+
+    // Autocompletes
+    if (i.isAutocomplete()) {
+      const cmd = i.commandName;
+
+      // Bannières
+      if (cmd === 'banniere') {
+        const focused = i.options.getFocused(true);
+        if (focused.name === 'id') {
+          const list = await readJson<any[]>('src/data/banners.json', []);
+          const now = Date.now();
+          const choices = list
+            .filter(b => new Date(b.end).getTime() > now)
+            .slice(-25)                    // protège le nombre de résultats
+            .reverse()
+            .map(b => ({ name: `${b.name} — ${b.id}`, value: b.id }));
+          await i.respond(choices);
         }
-        const name = i.options.getString('name', true);
-        const start = i.options.getString('start', true);
-        const end = i.options.getString('end', true);
-        await addBanner(name, start, end);
-        return i.reply(`Ajouté: **${name}**`);
+      }
+
+      // Signalements
+      if (cmd === 'signalement') {
+        const focused = i.options.getFocused(true);
+        if (focused.name === 'id') {
+          const list = await readJson<any[]>('src/data/reports.json', []);
+          const q = String(focused.value || '').toLowerCase();
+          const items = list
+            .sort((a,b)=> b.createdAt.localeCompare(a.createdAt))
+            .slice(0,25)
+            .map((r: any) => ({
+              name: `${r.id} — ${r.note.slice(0,40)}`,
+              value: r.id
+            }))
+            .filter((c: any) => !q || c.name.toLowerCase().includes(q));
+          await i.respond(items);
+        }
       }
     }
   } catch (e) {
-    console.error(e);
-    if (i.deferred || i.replied) i.followUp('Erreur inattendue.');
-    else i.reply('Erreur inattendue.');
+    console.error('interaction handler error:', e);
   }
 });
 
-// Cron: rappel reset
-cron.schedule(process.env.RESET_CRON || '0 5 * * *', async () => {
-  const channelId = process.env.ANNOUNCE_CHANNEL_ID!;
-  await sendToChannel(client, channelId, '🔔 **Reset quotidien** — Bon farm !');
-}, { timezone: process.env.RESET_CRON_TZ || 'Europe/Paris' });
+// Pour envoyer un DM de bienvenue + auto-assign recrues (ou envoyer un message dans #welcome si DM fermé)
+client.on('guildMemberAdd', onGuildMemberAdd);
+
+client.on('messageCreate', onCandidatureMessage);
 
 client.login(process.env.DISCORD_TOKEN);

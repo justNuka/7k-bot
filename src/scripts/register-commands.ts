@@ -1,51 +1,61 @@
 import 'dotenv/config';
-import { REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { REST, Routes } from 'discord.js';
+import { data as help } from '../commands/help.js';
+import { data as helpadmin } from '../commands/helpadmin.js';
+import { data as gdoc } from '../commands/gdoc.js';
+import { data as infoserveur } from '../commands/infoserveur.js';
+import { data as oubliCr } from '../commands/oubli-cr.js';
+import { data as lowScore } from '../commands/low-score.js';
+import { data as notif } from '../commands/notif.js';
+import { data as notifpanel } from '../commands/notifpanel.js';
+import { data as banniere } from '../commands/banniere.js';
+import { data as roleset } from '../commands/roleset.js';
+import { data as scrape } from '../commands/scrape.js';
+import { data as candidatures } from '../commands/candidatures.js';
+import { data as kick } from '../commands/kick.js';
+import { data as absence } from '../commands/absence.js';
+import { data as yt } from '../commands/yt.js';
+import { data as ytroute } from '../commands/ytroute.js';
+import { data as signalement } from '../commands/signalement.js';
+
+const token  = process.env.DISCORD_TOKEN!;
+const appId  = process.env.DISCORD_CLIENT_ID!;
+const guildId = process.env.GUILD_ID;
 
 const commands = [
-  // Time
-  new SlashCommandBuilder().setName('time')
-    .setDescription('Utilitaires horaires')
-    .addStringOption(o => o.setName('type').setDescription('ex: reset').setRequired(true)),
-  // Gemmes calc
-  new SlashCommandBuilder().setName('calc')
-    .setDescription('Calculateur de gemmes/pulls')
-    .addIntegerOption(o => o.setName('gemmes').setDescription('Gemmes actuelles').setRequired(true))
-    .addIntegerOption(o => o.setName('par_jour').setDescription('Gain quotidien').setRequired(true))
-    .addStringOption(o => o.setName('jusquau').setDescription('YYYY-MM-DD').setRequired(true)),
-  // Hero
-  new SlashCommandBuilder().setName('hero')
-    .setDescription('Fiche rapide d’un héros')
-    .addStringOption(o => o.setName('nom').setDescription('Nom/clé du héros').setRequired(true)),
-  // Tierlist
-  new SlashCommandBuilder().setName('tier')
-    .setDescription('Tierlist rapide')
-    .addStringOption(o => o.setName('mode')
-    .setDescription('pvp ou pve')
-    .setRequired(true)
-    .addChoices({name:'pvp', value:'pvp'}, {name:'pve', value:'pve'})),
-  // Banners
-  new SlashCommandBuilder().setName('banner').setDescription('Gestion des bannières')
-    .addSubcommand(sc => sc.setName('next').setDescription('Prochaine bannière'))
-    .addSubcommand(sc => sc.setName('list').setDescription('Lister les bannières'))
-    .addSubcommand(sc => sc.setName('add').setDescription('Ajouter (admin)')
-    .addStringOption(o => o.setName('name').setDescription('Nom').setRequired(true))
-    .addStringOption(o => o.setName('start').setDescription('ISO date').setRequired(true))
-    .addStringOption(o => o.setName('end').setDescription('ISO date').setRequired(true))),
+  help, 
+  helpadmin, 
+  gdoc, 
+  infoserveur,
+  oubliCr, 
+  lowScore, 
+  notif, 
+  notifpanel, 
+  banniere, 
+  roleset, 
+  scrape, 
+  candidatures,
+  absence, 
+  kick,
+  yt,
+  ytroute,
+  signalement,
 ].map(c => c.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+console.log('AppId:', appId);
+console.log('GuildId:', guildId ?? '(global)');
+const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
-  const appId = process.env.DISCORD_CLIENT_ID!;
-  const guildId = process.env.DEV_GUILD_ID;
-
-  if (guildId) {
-    console.log(`→ Registering GUILD commands to ${guildId}…`);
-    await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: commands });
-    console.log('✅ Slash commands (guild) enregistrées');
-  } else {
-    console.log('→ Registering GLOBAL commands…');
-    await rest.put(Routes.applicationCommands(appId), { body: commands });
-    console.log('✅ Slash commands (global) enregistrées');
+  try {
+    if (guildId) {
+      console.log('→ Registering GUILD commands…');
+      await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: commands });
+      console.log('✅ Guild commands enregistrées');
+    }
+  } catch (e: any) {
+    console.error('❌ Register failed:', e?.code, e?.status, e?.rawError ?? e);
+    console.error('Tips: bot invité ? appId ↔ token ok ? guildId correct ? scopes ok ?');
+    process.exit(1);
   }
 })();

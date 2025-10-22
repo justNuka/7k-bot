@@ -1,0 +1,32 @@
+[
+  {
+    "id": "rt_20251019144743_v1k1",
+    "pattern": "infinite|infinity.*tower|tour.*infinie",
+    "forumId": "1426613505603145882",
+    "postTitle": "Infinite Tower"
+  },
+  {
+    "id": "rt_20251019144837_fr58",
+    "pattern": "tower of trials|trial(s)?|tour.*epreuves|tour.*épreuves",
+    "forumId": "1426613505603145882",
+    "postTitle": "Tower of Trials"
+  },
+  {
+    "id": "rt_20251019144857_byhp",
+    "pattern": ".*",
+    "forumId": "1426613505603145882",
+    "postTitle": "Autres"
+  },
+  {
+    "id": "rt_20251019144931_jj6w",
+    "pattern": "guild.?war(s)?|gvg",
+    "forumId": "1415411016023408650",
+    "postTitle": "Guild Wars"
+  },
+  {
+    "id": "rt_20251019144948_0uod",
+    "pattern": "arena|arène",
+    "forumId": "1415411016023408650",
+    "postTitle": "Arena"
+  }
+]
