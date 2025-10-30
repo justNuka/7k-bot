@@ -14,7 +14,9 @@
     "inspect:dev": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/inspect-commands.ts",
     "clear-global": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/scripts/clear-global.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node -r dotenv/config dist/index.js"
+    "start": "node -r dotenv/config dist/index.js",
+    "db:init": "node src/scripts/init_db.cjs",
+    "db:explorer": "node src/scripts/db_explorer.cjs"
   },
   "repository": {
     "type": "git",
@@ -31,10 +33,12 @@
     "axios": "^1.11.0",
     "better-sqlite3": "^12.4.1",
     "cheerio": "^1.1.2",
+    "cli-table3": "^0.6.5",
     "dayjs": "^1.11.18",
     "discord.js": "^14.22.1",
     "dotenv": "^17.2.2",
     "fastify": "^5.6.1",
+    "inquirer": "^12.10.0",
     "node-cron": "^4.2.1",
     "node-fetch": "^3.3.2",
     "pino": "^10.1.0",
@@ -45,7 +49,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.1",
     "ts-node": "^10.9.2",
-    "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }

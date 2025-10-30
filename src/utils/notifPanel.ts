@@ -1,17 +1,16 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client, type Guild } from 'discord.js';
-import { readJson, writeJson } from './storage.js';
+// src/utils/notifPanel.ts
+import {
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client, type Guild, ChannelType
+} from 'discord.js';
 import { ROLE_IDS } from '../config/permissions.js';
 import { makeEmbed } from './embed.js';
 
-const STORE_PATH = 'src/data/notifPanel.json';
+// ⬇️ NEW: on persiste en base via le module DB
+import { getPanelRef, savePanelRef as dbSavePanelRef } from '../db/panel.js';
 
-type PanelStore = { channelId: string; messageId: string };
-
-export async function savePanelRef(ref: PanelStore) {
-  await writeJson(STORE_PATH, ref);
-}
-export async function loadPanelRef(): Promise<PanelStore | null> {
-  return await readJson<PanelStore | null>(STORE_PATH, null);
+/** Signature inchangée pour la commande /notifpanel */
+export async function savePanelRef(ref: { channelId: string; messageId: string }) {
+  dbSavePanelRef(ref); // upsert en SQLite
 }
 
 function countRole(guild: Guild, roleId?: string) {
@@ -20,6 +19,7 @@ function countRole(guild: Guild, roleId?: string) {
   return role?.members.size ?? 0;
 }
 
+/** Boutons d’abonnement + compteurs (comme avant) */
 export function buildPanelComponents(guild: Guild) {
   const crCount    = countRole(guild, ROLE_IDS.NOTIF_CR);
   const dailyCount = countRole(guild, ROLE_IDS.NOTIF_DAILY);
@@ -46,38 +46,37 @@ export function buildPanelComponents(guild: Guild) {
   ];
 }
 
-/** Met à jour les **boutons (compteurs)** */
+/** Met à jour les **boutons (compteurs)** du message déjà publié */
 export async function refreshPanelMessage(client: Client) {
-  const ref = await loadPanelRef();
+  const ref = getPanelRef();
   if (!ref) return;
-  const chan = await client.channels.fetch(ref.channelId).catch(() => null);
-  if (!chan || !chan.isTextBased()) return;
 
-  const guild = ('guild' in chan && chan.guild) ? chan.guild : null;
-  if (!guild) return;
+  const chan = await client.channels.fetch(ref.channel_id).catch(() => null);
+  if (!chan || chan.type !== ChannelType.GuildText) return;
 
+  const guild = chan.guild!;
   const components = buildPanelComponents(guild);
-  const msg = await chan.messages.fetch(ref.messageId).catch(() => null);
+
+  const msg = await chan.messages.fetch(ref.message_id).catch(() => null);
   if (msg) await msg.edit({ components });
 }
 
 /** Met à jour **l’embed (texte)** avec les nombres d’inscrits */
 export async function updateNotifPanel(client: Client) {
-  const ref = await loadPanelRef();
+  const ref = getPanelRef();
   if (!ref) return;
-  const chan = await client.channels.fetch(ref.channelId).catch(() => null);
-  if (!chan || !chan.isTextBased()) return;
 
-  const guild = ('guild' in chan && chan.guild) ? chan.guild : null;
-  if (!guild) return;
+  const chan = await client.channels.fetch(ref.channel_id).catch(() => null);
+  if (!chan || chan.type !== ChannelType.GuildText) return;
 
+  const guild = chan.guild!;
   const [nCR, nDay, nGvG] = [
     ROLE_IDS.NOTIF_CR,
     ROLE_IDS.NOTIF_DAILY,
     ROLE_IDS.NOTIF_GVG
   ].map(rid => guild.roles.cache.get(rid)?.members.size ?? 0);
 
-  const msg = await chan.messages.fetch(ref.messageId).catch(() => null);
+  const msg = await chan.messages.fetch(ref.message_id).catch(() => null);
   if (!msg) return;
 
   const emb = makeEmbed({

@@ -1,36 +1,21 @@
+// src/commands/lowScore.ts
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
 import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
-import { readJson, writeJson } from '../utils/storage.js';
 import { CR_DAYS, dayLabel } from '../utils/cr.js';
-import { currentWeekStart, isOutdated } from '../utils/week.js';
+import { getWeekStartIso } from '../utils/week.js';
 import { COMMAND_RULES } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
 import { discordAbsolute } from '../utils/time.js';
+import { addLowScore } from '../db/crWrites.js';
+import { db } from '../db/db.js';
 
-// Helpers
-import { crDefer, crEdit } from '../utils/crReply.js';   
+// Helpers (déjà existants chez toi)
+import { crDefer, crEdit } from '../utils/crReply.js';
 import { pushLog } from '../http/logs.js';
 
-type LowEntry = { userId: string; score: number; note?: string };
-type LowWeekStore = {
-  weekStart: string;
-  days: { mon: LowEntry[]; tue: LowEntry[]; wed: LowEntry[]; thu: LowEntry[]; fri: LowEntry[]; sat: LowEntry[]; sun: LowEntry[]; }
-};
-
-const STORE_PATH = 'src/data/crLow.json';
-
-async function loadWeek(): Promise<LowWeekStore> {
-  const empty: LowWeekStore = {
-    weekStart: currentWeekStart(),
-    days: { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
-  };
-  const s = await readJson<LowWeekStore>(STORE_PATH, empty);
-  if (isOutdated(s.weekStart)) return empty;
-  return s;
-}
-async function saveWeek(s: LowWeekStore) { await writeJson(STORE_PATH, s); }
+type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
 export const data = new SlashCommandBuilder()
   .setName('low-score')
@@ -59,7 +44,7 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  // 🔐 Rôle seulement (on n’impose plus un canal unique : mirroring géré par crReply utils)
+  // 🔐 Accès (rôles/canaux) – même logique que tes autres commandes
   const rule = COMMAND_RULES['low-score'] ?? COMMAND_RULES['oubli-cr'];
   if (!(await requireAccess(interaction, { roles: rule.roles, channels: rule.channels }))) return;
 
@@ -68,43 +53,52 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   try {
     await crDefer(interaction);
 
-    let store = await loadWeek();
+    const weekStart = getWeekStartIso(new Date()); // YYYY-MM-DD pour la semaine courante
 
     if (sub === 'add') {
       const user = interaction.options.getUser('membre', true);
       const score = interaction.options.getInteger('score', true);
-      const jour = interaction.options.getString('jour', true) as keyof LowWeekStore['days'];
+      const jour = interaction.options.getString('jour', true) as DayKey;
       const note = interaction.options.getString('note') ?? undefined;
 
-      store.days[jour].push({ userId: user.id, score, note });
-      await saveWeek(store);
+      // Écrit directement en DB (table low_week)
+      addLowScore(weekStart, jour, user.id, score, note);
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
         component: 'low-score',
-        msg: `[LOW-SCORE] Added low score: ${user.tag} — ${score} on ${jour} (by ${interaction.user.tag})`,
-        meta: { userId: user.id, score, day: jour, by: interaction.user.id }
+        msg: `[LOW-SCORE] Add ${user.tag} — ${score} on ${jour} (by ${interaction.user.tag})`,
+        meta: { userId: user.id, score, day: jour, by: interaction.user.id, weekStart }
       });
 
       return crEdit(interaction, {
         embeds: [makeEmbed({
-          title: `📉 Low score enregistré — semaine du ${discordAbsolute(store.weekStart, 'F')}`,
+          title: `📉 Low score enregistré — semaine du ${discordAbsolute(weekStart, 'F')}`,
           fields: [
             { name: 'Membre', value: `<@${user.id}>`, inline: true },
             { name: 'Jour', value: dayLabel(jour), inline: true },
             { name: 'Score', value: String(score), inline: true },
-            { name: 'Semaine', value: discordAbsolute(store.weekStart, 'F'), inline: true },
-            ...(note ? [{ name: 'Note', value: note, inline: false }] : [])
+            ...(note ? [{ name: 'Note', value: note, inline: false }] : []),
           ],
-          timestamp: new Date(store.weekStart)
+          timestamp: new Date(weekStart)
         })]
       });
     }
 
     if (sub === 'week') {
+      // Lecture DB -> groupé par jour
+      const rows = db.prepare(
+        'SELECT day, user_id, score, note FROM low_week WHERE week_start = ? ORDER BY day'
+      ).all(weekStart) as Array<{day: DayKey; user_id: string; score: number; note?: string | null}>;
+
+      const map: Record<DayKey, Array<{ userId: string; score: number; note?: string | null }>> = {
+        mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: []
+      };
+      for (const r of rows) map[r.day].push({ userId: r.user_id, score: r.score, note: r.note ?? null });
+
       const fields = (['mon','tue','wed','thu','fri','sat','sun'] as const).map(k => {
-        const list = store.days[k];
+        const list = map[k];
         const text = list.length
           ? list.map(e => `• <@${e.userId}> — **${e.score}**${e.note ? ` — _${e.note}_` : ''}`).join('\n')
           : '—';
@@ -115,30 +109,35 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         ts: new Date().toISOString(),
         level: 'info',
         component: 'low-score',
-        msg: `[LOW-SCORE] Week summary requested (by ${interaction.user.tag})`,
-        meta: { by: interaction.user.id }
+        msg: `[LOW-SCORE] Week summary (by ${interaction.user.tag})`,
+        meta: { by: interaction.user.id, weekStart }
       });
 
       return crEdit(interaction, {
         embeds: [makeEmbed({
-          title: `🗓 Low scores — semaine du ${store.weekStart}`,
-          timestamp: store.weekStart,
+          title: `🗓 Low scores — semaine du ${discordAbsolute(weekStart, 'F')}`,
+          timestamp: new Date(weekStart),
           fields
         })]
       });
     }
 
     if (sub === 'reset') {
-      store = { weekStart: currentWeekStart(), days: { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] } };
-      await saveWeek(store);
+      // on ne “réinitialise” plus un store mémoire : on vide la table pour la semaine
+      db.prepare('DELETE FROM low_week WHERE week_start = ?').run(weekStart);
+
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
         component: 'low-score',
-        msg: `[LOW-SCORE] Weekly low scores reset (by ${interaction.user.tag})`,
-        meta: { by: interaction.user.id }
+        msg: `[LOW-SCORE] Weekly reset (by ${interaction.user.tag})`,
+        meta: { by: interaction.user.id, weekStart }
       });
-      return crEdit(interaction, `🧹 Low scores hebdo réinitialisés (semaine du ${discordAbsolute(store.weekStart, 'f')}).`);
+
+      return crEdit(
+        interaction,
+        `🧹 Low scores hebdo réinitialisés (semaine du ${discordAbsolute(weekStart, 'f')}).`
+      );
     }
 
   } catch (e) {
@@ -148,10 +147,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       ts: new Date().toISOString(),
       level: 'error',
       component: 'low-score',
-      msg: `[LOW-SCORE] Error executing low-score command (by ${interaction.user.tag})`,
+      msg: `[LOW-SCORE] Error executing low-score (by ${interaction.user.tag})`,
       meta: { by: interaction.user.id, error: String(e) }
     });
-    return;
   }
 }
 

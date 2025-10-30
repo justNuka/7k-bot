@@ -16,3 +16,14 @@ export function isOutdated(weekStart: string | undefined) {
   if (!weekStart) return true;
   return weekStart !== currentWeekStart();
 }
+
+export function getWeekStartIso(date = new Date()) {
+  const d = new Date(date);
+  const day = (d.getDay() + 6) % 7; // 0=lundi
+  d.setDate(d.getDate() - day);
+  d.setHours(0,0,0,0);
+  return d.toISOString().slice(0,10);
+}
+export function dayKeyFromDate(date = new Date()) {
+  return ['mon','tue','wed','thu','fri','sat','sun'][(date.getDay()+6)%7];
+}

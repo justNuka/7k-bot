@@ -1,15 +1,22 @@
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, Colors, EmbedBuilder } from 'discord.js';
-import { COMMAND_RULES } from '../config/permissions.js';
+import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
-import { loadCandStore, saveCandStore, type CandidatureOpen } from '../utils/candidatures.js';
 import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
 import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { sendToChannel } from '../utils/send.js';
-import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
+import { CHANNEL_IDS } from '../config/permissions.js';
 import { discordAbsolute } from '../utils/time.js';
 import { pushLog } from '../http/logs.js';
+
+// DB
+import {
+  countOpenCandidatures,
+  listOpenCandidaturesPaged,
+  setCandidatureStatus,
+  getCandidatureById,
+} from '../db/candidatures.js';
 
 const PAGE_SIZE = 5;
 
@@ -35,16 +42,15 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     await officerDefer(interaction);
 
     const page = interaction.options.getInteger('page') ?? 1;
-    const store = await loadCandStore();
-    const total = store.open.length;
+    const total = countOpenCandidatures();
     if (!total) {
       return officerEdit(interaction, 'Aucune candidature ouverte.');
     }
 
     const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const cur = Math.min(Math.max(1, page), maxPage);
-    const start = (cur - 1) * PAGE_SIZE;
-    const slice = store.open.slice(start, start + PAGE_SIZE);
+    const offset = (cur - 1) * PAGE_SIZE;
+    const slice = listOpenCandidaturesPaged(PAGE_SIZE, offset);
 
     const emb = new EmbedBuilder()
       .setColor(Colors.Blurple)
@@ -54,20 +60,21 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     emb.setDescription(
       slice.map(c => {
-        const when = discordAbsolute(c.createdAt, 'f');
-        return `• **#${c.id}** — <@${c.userId}> — ${when} — [lien](${c.jumpLink})`;
+        const when = discordAbsolute(c.created_at, 'f');
+        const link = c.message_url ? ` — [lien](${c.message_url})` : '';
+        return `• **#${c.id}** — <@${c.user_id}> — ${when}${link}`;
       }).join('\n')
     );
 
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
 
-    // Ligne de pagination
+    // Pagination
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(`cand:page:${cur - 1}`).setStyle(ButtonStyle.Secondary).setLabel('⬅️ Précédent').setDisabled(cur <= 1),
       new ButtonBuilder().setCustomId(`cand:page:${cur + 1}`).setStyle(ButtonStyle.Secondary).setLabel('Suivant ➡️').setDisabled(cur >= maxPage),
     ));
 
-    // Lignes d’actions (accept/refuse) — une rangée pour chaque entrée
+    // Actions (accept / reject)
     for (const c of slice) {
       rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(`cand:accept:${c.id}`).setStyle(ButtonStyle.Success).setLabel(`Accepter #${c.id}`),
@@ -94,7 +101,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       msg: `Erreur sur /candidatures list pour <@${interaction.user.id}>`,
       meta: { error: (e as Error).message }
     });
-
     await safeError(interaction, 'Erreur sur /candidatures list.');
   }
 }
@@ -102,11 +108,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 // ---------- Buttons handler ----------
 export async function handleCandidaturesButton(interaction: ButtonInteraction) {
   try {
-    // only officers
+    // officers-only
     const isOfficer = interaction.member && 'roles' in interaction.member
-      ? interaction.member.roles instanceof Map
-        ? (interaction.member.roles as any).has(ROLE_IDS.OFFICIERS)
-        : (interaction.member.roles as any).cache?.has?.(ROLE_IDS.OFFICIERS)
+      ? (interaction as any).member?.roles?.cache?.has?.(ROLE_IDS.OFFICIERS)
       : false;
     if (!isOfficer) {
       pushLog({
@@ -116,25 +120,18 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
         msg: `Tentative d'utilisation bouton candidatures par <@${interaction.user.id}> sans accès`,
         meta: {}
       });
-
       return interaction.reply({ content: '❌ Réservé aux officiers.', ephemeral: true });
     }
 
-    const parts = interaction.customId.split(':'); // cand:accept:12 | cand:reject:12 | cand:page:2
-    if (parts[0] !== 'cand') return;
-
-    const action = parts[1];
-    const arg = parts[2];
-
-    const store = await loadCandStore();
+    const [kind, action, arg] = interaction.customId.split(':'); // cand:accept:<id> | cand:reject:<id> | cand:page:<n>
+    if (kind !== 'cand') return;
 
     if (action === 'page') {
-      // on relance la commande avec la nouvelle page (simple: on édite le message en appelant la logique)
       const fakeSlash = {
         ...interaction,
         options: { getSubcommand: () => 'list', getInteger: () => Number(arg) },
+        // on réutilise la même logique d’affichage
       } as any as ChatInputCommandInteraction;
-      // réutilise execute pour générer l'embed
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
@@ -142,123 +139,87 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
         msg: `Navigation candidatures page ${arg} par <@${interaction.user.id}>`,
         meta: {}
       });
-
       return execute(fakeSlash);
     }
 
     if (action === 'accept' || action === 'reject') {
-      const id = Number(arg);
-      const idx = store.open.findIndex(o => o.id === id);
-      if (idx === -1) {
+      const id = arg; // TEXT PK
+      const entry = getCandidatureById(id);
+      if (!entry || entry.status !== 'open') {
         pushLog({ 
           ts: new Date().toISOString(),
           level: 'warn',
           component: 'candidatures',
-          msg: `Candidature #${id} introuvable pour ${action} par <@${interaction.user.id}>`,
+          msg: `Candidature #${id} introuvable/fermée pour ${action} par <@${interaction.user.id}>`,
           meta: {}
         });
-        return interaction.reply({ content: `❌ Candidature #${id} introuvable (déjà traitée ?).`, ephemeral: true });
+        return interaction.reply({ content: `❌ Candidature #${id} introuvable (ou déjà traitée).`, ephemeral: true });
       }
-      const entry = store.open[idx];
-      store.open.splice(idx, 1);
-      store.closed.push({
-          ...entry,
-          closedAt: new Date().toISOString(),
-          status: action === 'accept' ? 'accepted' : 'rejected',
-          moderatorId: interaction.user.id,
-      });
-      await saveCandStore(store);
 
-      // --- LOGIQUE ROLESWAP SI ACCEPT ---
-      let swapNote = '';
+      setCandidatureStatus(id, action === 'accept' ? 'accepted' : 'rejected');
+
+      // roleswap si accept
+      let extraNote = '';
       if (action === 'accept') {
-          try {
-          const guild = await interaction.client.guilds.fetch(entry.guildId);
-          const member = await guild.members.fetch(entry.userId).catch(() => null);
-
-          if (!member) {
-              swapNote = '⚠️ Membre introuvable sur le serveur (a quitté ?).';
-          } else {
-              // Vérifs perms & hiérarchie
-              const me = guild.members.me;
+        try {
+          const guild = await interaction.client.guilds.fetch(entry.channel_id.split('/')[0]).catch(()=>null);
+          const targetGuild = guild ?? (await interaction.client.guilds.fetch(process.env.GUILD_ID!).catch(()=>null));
+          if (targetGuild) {
+            const member = await targetGuild.members.fetch(entry.user_id).catch(() => null);
+            if (member) {
+              const me = targetGuild.members.me;
               const canManage =
-              me?.permissions.has('ManageRoles') &&
-              (!ROLE_IDS.RECRUES || me.roles.highest.comparePositionTo(guild.roles.cache.get(ROLE_IDS.RECRUES)!) > 0) &&
-              (!ROLE_IDS.MEMBRES || me.roles.highest.comparePositionTo(guild.roles.cache.get(ROLE_IDS.MEMBRES)!) > 0);
-
-              if (!canManage) {
-              swapNote = '⚠️ Impossible de gérer les rôles (permissions/hiérarchie).';
-              } else {
-              // Applique: +MEMBRES, -RECRUES
-              if (ROLE_IDS.MEMBRES && !member.roles.cache.has(ROLE_IDS.MEMBRES)) {
+                me?.permissions.has('ManageRoles') &&
+                (!ROLE_IDS.RECRUES || me.roles.highest.comparePositionTo(targetGuild.roles.cache.get(ROLE_IDS.RECRUES)!) > 0) &&
+                (!ROLE_IDS.MEMBRES || me.roles.highest.comparePositionTo(targetGuild.roles.cache.get(ROLE_IDS.MEMBRES)!) > 0);
+              if (canManage) {
+                if (ROLE_IDS.MEMBRES && !member.roles.cache.has(ROLE_IDS.MEMBRES)) {
                   await member.roles.add(ROLE_IDS.MEMBRES, `candidature acceptée (#${id})`);
-              }
-              if (ROLE_IDS.RECRUES && member.roles.cache.has(ROLE_IDS.RECRUES)) {
+                }
+                if (ROLE_IDS.RECRUES && member.roles.cache.has(ROLE_IDS.RECRUES)) {
                   await member.roles.remove(ROLE_IDS.RECRUES, `candidature acceptée (#${id})`);
+                }
+                extraNote = ' — ✅ roleswap effectué.';
+              } else {
+                extraNote = ' — ⚠️ perms/hiérarchie rôles insuffisantes.';
               }
-              swapNote = '✅ Roleswap effectué (+Membres, -Recrues).';
-              }
-
-              pushLog({
-                ts: new Date().toISOString(),
-                level: 'info',
-                component: 'candidatures',
-                msg: `Roleswap effectué pour <@${entry.userId}> suite à l'acceptation de la candidature #${id}`,
-                meta: { moderatorId: interaction.user.id }
-              });
+            } else {
+              extraNote = ' — ⚠️ membre introuvable (a quitté ?).';
             }
-          } catch (e) {
-            console.error('[candidatures accept roleswap] error:', e);
-            swapNote = '⚠️ Erreur lors du roleswap.';
-            pushLog({
-              ts: new Date().toISOString(),
-              level: 'error',
-              component: 'candidatures',
-              msg: `Erreur lors du roleswap pour <@${entry.userId}> suite à l'acceptation de la candidature #${id}`,
-              meta: { moderatorId: interaction.user.id, error: (e as Error).message }
-            });
           }
+        } catch { /* ignore */ }
       }
 
-      // --- LOG PUBLIC DANS #retours-bot ---
-      const verb = action === 'accept' ? '✅ Acceptée' : '❌ Refusée';
-      const extra = action === 'accept' ? (swapNote ? `\n${swapNote}` : '') : '';
+      // log public
       await sendToChannel(interaction.client, CHANNEL_IDS.RETOURS_BOT, {
-          content: `**${verb}** par <@${interaction.user.id}> — candidature **#${id}** de <@${entry.userId}> — [lien](${entry.jumpLink})${extra}`,
+        content: `**${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'}** par <@${interaction.user.id}> — candidature **#${id}** de <@${entry.user_id}> — ${entry.message_url ? `[lien](${entry.message_url})` : '(pas de lien)'}${extraNote}`,
       });
 
-      // --- DM AU CANDIDAT (best effort) ---
+      // DM best-effort
       try {
-          const user = await interaction.client.users.fetch(entry.userId);
-          if (action === 'accept') {
-          await user.send(
-              `🎉 Ta candidature (**#${id}**) a été **acceptée** ! Bienvenue parmi les membres de la guilde.\n` +
-              `Passe dire bonjour et n’hésite pas à lire les salons d’informations.`
-          );
-          } else {
-          await user.send(
-              `👋 Ta candidature (**#${id}**) a été **refusée**. Merci pour l’intérêt porté à la guilde, et bonne continuation !`
-          );
-          }
-      } catch {
-          /* DMs fermés : on ignore */
-      }
+        const user = await interaction.client.users.fetch(entry.user_id);
+        if (action === 'accept') {
+          await user.send(`🎉 Ta candidature (**#${id}**) a été **acceptée** ! Bienvenue !`);
+        } else {
+          await user.send(`👋 Ta candidature (**#${id}**) a été **refusée**. Merci pour l’intérêt porté à la guilde.`);
+        }
+      } catch {}
 
-      await interaction.reply({ content: `${verb} (#${id}).`, ephemeral: true });
+      await interaction.reply({ content: `${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'} (#${id}).`, ephemeral: true });
 
-      // --- rafraîchit la page courante ---
+      // rafraichir la page courante via footer Page X/Y si dispo
       const footerText = interaction.message.embeds[0]?.footer?.text ?? '';
       const m = footerText.match(/Page\s+(\d+)\/(\d+)/);
       const curPage = m ? Number(m[1]) : 1;
 
       const fakeSlash = {
-          ...interaction,
-          options: { getSubcommand: () => 'list', getInteger: () => curPage },
-          editReply: interaction.update.bind(interaction),
+        ...interaction,
+        options: { getSubcommand: () => 'list', getInteger: () => curPage },
+        editReply: interaction.update.bind(interaction),
       } as any as ChatInputCommandInteraction;
 
-    return execute(fakeSlash);
-  }
+      return execute(fakeSlash);
+    }
 
   } catch (e) {
     console.error('[candidatures button] error:', e);
@@ -270,8 +231,9 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
         msg: `Erreur bouton candidatures pour <@${interaction.user.id}>`,
         meta: { error: (e as Error).message }
       });
-      
       await interaction.reply({ content: 'Erreur bouton.', ephemeral: true });
     }
   }
 }
+
+export default { data, execute };

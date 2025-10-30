@@ -56,6 +56,30 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         ].join('\n'),
         inline: false,
       },
+      {
+        name: '🆘 `/coaching`',
+        value: [
+          '**Objet** : demander un coaching ou une aide (vu par les Officiers)',
+          '**Options** :',
+          '• `type` : `coaching` ou `aide`',
+          '• `message` : ta demande',
+          '→ Transmis dans le salon retours bot.',
+        ].join('\n'),
+        inline: false,
+      },
+      {
+        name: '🚨 `/pingoff`',
+        value: [
+          '**Objet** : alerter les Officiers (remonter une info, signalement, autre).',
+          '**Options** :',
+          '• `motif` : `remonter_info` | `signaler_membre` | `autre`',
+          '• `message` : ton message',
+          '• `officier` (optionnel) : notifier un Officier précis',
+          '→ Sans officier : message dans retours bot + ping rôle Officiers.',
+          '→ Avec officier : DM direct ; si DM impossible, **fil privé** auteur↔officier.',
+        ].join('\n'),
+        inline: false,
+      },
     ];
 
     // --- Bloc commandes Officiers (actuelles + à venir) ---

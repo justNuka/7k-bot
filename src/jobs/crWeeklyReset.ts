@@ -1,39 +1,27 @@
 import cron from 'node-cron';
-import { readJson, writeJson } from '../utils/storage.js';
+import type { Client } from 'discord.js';
+import { db } from '../db/db.js';
 import { currentWeekStart } from '../utils/week.js';
 import { makeEmbed } from '../utils/embed.js';
-import { CR_DAYS, dayLabel } from '../utils/cr.js';
+import { dayLabel } from '../utils/cr.js';
 import { sendToChannel } from '../utils/send.js';
-import type { Client } from 'discord.js';
-import { discordAbsolute, discordDate } from '../utils/time.js';
+import { discordAbsolute } from '../utils/time.js';
 
-// Type pour le stockage des oublis hebdomadaires
-type WeekStore = {
-  weekStart: string;
-  days: { mon: string[]; tue: string[]; wed: string[]; thu: string[]; fri: string[]; sat: string[]; sun: string[]; };
-};
-const WEEK_PATH = 'src/data/crWeek.json';
+type DayKey = 'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun';
+const DAYS: DayKey[] = ['mon','tue','wed','thu','fri','sat','sun'];
 
-// Types low-score
-type LowEntry = { userId: string; score: number; note?: string };
-type LowWeekStore = {
-  weekStart: string;
-  days: { mon: LowEntry[]; tue: LowEntry[]; wed: LowEntry[]; thu: LowEntry[]; fri: LowEntry[]; sat: LowEntry[]; sun: LowEntry[]; }
-};
-const LOW_PATH = 'src/data/crLow.json';
-
-function buildWeeklyRecapEmbed(store: WeekStore) {
+function buildWeeklyRecapEmbed(weekStart: string, byDay: Record<DayKey, string[]>) {
   // champs jour par jour
-  const fields = (['mon','tue','wed','thu','fri','sat','sun'] as const).map(k => {
-    const list = store.days[k];
+  const fields = DAYS.map((k) => {
+    const list = byDay[k];
     const text = list.length ? list.map(id => `<@${id}>`).join('\n') : '—';
     return { name: dayLabel(k), value: text, inline: true };
   });
 
-  // mini top hebdo (qui a oublié le plus cette semaine)
+  // mini top hebdo
   const counts = new Map<string, number>();
-  for (const k of Object.keys(store.days) as Array<keyof WeekStore['days']>) {
-    for (const uid of store.days[k]) counts.set(uid, (counts.get(uid) ?? 0) + 1);
+  for (const k of DAYS) for (const uid of byDay[k]) {
+    counts.set(uid, (counts.get(uid) ?? 0) + 1);
   }
   const topLines = [...counts.entries()]
     .sort((a,b) => b[1]-a[1])
@@ -41,73 +29,81 @@ function buildWeeklyRecapEmbed(store: WeekStore) {
     .map(([uid, n]) => `**${n}** — <@${uid}>`)
     .join('\n') || '—';
 
-  const embed = makeEmbed({
-    title: `🗓 Récap CR — semaine du ${discordAbsolute(store.weekStart, 'F')}`,
+  return makeEmbed({
+    title: `🗓 Récap CR — semaine du ${discordAbsolute(weekStart, 'F')}`,
     description: 'Liste des oublis par jour (lun→dim) et top hebdo.',
     fields: [
       ...fields,
       { name: '🏆 Top hebdo (attention à la porte)', value: topLines }
     ],
     footer: 'Reset automatique chaque lundi à 02:15 (heure Paris)',
-    timestamp: new Date(store.weekStart)
+    timestamp: new Date(weekStart)
   });
-
-  return embed;
 }
 
-function buildLowScoreEmbed(store: LowWeekStore) {
-  const fields = (['mon','tue','wed','thu','fri','sat','sun'] as const).map(k => {
-    const list = store.days[k];
+function buildLowScoreEmbed(weekStart: string, byDay: Record<DayKey, Array<{user_id:string;score:number;note?:string|null}>>) {
+  const fields = DAYS.map((k) => {
+    const list = byDay[k];
     const text = list.length
-      ? list.map(e => `• <@${e.userId}> — **${e.score}**${e.note ? ` — _${e.note}_` : ''}`).join('\n')
+      ? list.map(e => `• <@${e.user_id}> — **${e.score}**${e.note ? ` — _${e.note}_` : ''}`).join('\n')
       : '—';
     return { name: dayLabel(k), value: text, inline: false };
   });
 
   return makeEmbed({
-    title: `📉 Récap low scores — semaine du ${store.weekStart}`,
-    timestamp: store.weekStart,
+    title: `📉 Récap low scores — semaine du ${discordAbsolute(weekStart, 'F')}`,
     fields,
-    footer: 'Reset automatique chaque lundi à 02:15 (heure Paris)'
+    footer: 'Reset automatique chaque lundi à 02:15 (heure Paris)',
+    timestamp: new Date(weekStart)
   });
 }
 
 export function registerWeeklyResetJob(client: Client) {
-  const spec = process.env.CR_WEEKLY_RESET_CRON || '15 2 * * 1';
+  const spec = process.env.CR_WEEKLY_RESET_CRON || '15 2 * * 1'; // lundi 02:15
   const tz   = process.env.RESET_CRON_TZ || 'Europe/Paris';
   const channelId = process.env.CR_LOGS_CHANNEL_ID;
 
   cron.schedule(spec, async () => {
     try {
+      // Semaine à récap = la semaine **précédente**
+      // currentWeekStart() retourne le lundi de la semaine courante → on soustrait 7 jours
+      const current = currentWeekStart();                  // YYYY-MM-DD (lundi courant)
+      const prev = db.prepare("SELECT date(?, '-7 day') AS ws").get(current) as { ws: string };
+      const prevWeekStart = prev.ws;
 
-      // 1) Lire le stockage des oublis et low-scores de la semaine passée
-      // store “oublis”
-      const fallback: WeekStore = { weekStart: currentWeekStart(), days: { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] } };
-      const store = await readJson<WeekStore>(WEEK_PATH, fallback);
+      // 1) Charger CR hebdo de la semaine précédente
+      const crRows = db.prepare(
+        'SELECT day, user_id FROM cr_week WHERE week_start = ? ORDER BY day'
+      ).all(prevWeekStart) as Array<{day: DayKey; user_id:string}>;
 
-      // store “low scores”
-      const lowFallback: LowWeekStore = { weekStart: currentWeekStart(), days: { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] } };
-      const low = await readJson<LowWeekStore>(LOW_PATH, lowFallback);
+      const crByDay: Record<DayKey, string[]> = { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] };
+      for (const r of crRows) crByDay[r.day].push(r.user_id);
 
-      // 2) Poster le récap si un salon est configuré
+      // 2) Charger low scores de la semaine précédente
+      const lowRows = db.prepare(
+        'SELECT day, user_id, score, note FROM low_week WHERE week_start = ? ORDER BY day'
+      ).all(prevWeekStart) as Array<{day: DayKey; user_id:string; score:number; note?:string|null}>;
+
+      const lowByDay: Record<DayKey, Array<{user_id:string;score:number;note?:string|null}>> =
+        { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] };
+      for (const r of lowRows) lowByDay[r.day].push({ user_id: r.user_id, score: r.score, note: r.note ?? null });
+
+      // 3) Poster les récap si un salon est configuré
       if (channelId) {
-        const embed = buildWeeklyRecapEmbed(store);
-        await sendToChannel(client, channelId, { embeds: [embed] });
-
-        const recapLow = buildLowScoreEmbed(low);
-        await sendToChannel(client, channelId, { embeds: [recapLow] });
+        const embedCr  = buildWeeklyRecapEmbed(prevWeekStart, crByDay);
+        const embedLow = buildLowScoreEmbed(prevWeekStart, lowByDay);
+        await sendToChannel(client, channelId, { embeds: [embedCr] });
+        await sendToChannel(client, channelId, { embeds: [embedLow] });
       }
 
-      // 3) Réinitialiser les 2 fichiers de stockage (nouveau weekStart = ce lundi)
-      const freshWeek: WeekStore = { weekStart: currentWeekStart(), days: { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] } };
-      await writeJson(WEEK_PATH, freshWeek);
+      // 4) Nettoyer la **semaine courante** pour repartir sur une base vide (au cas où)
+      const weekStartNow = currentWeekStart();
+      db.prepare('DELETE FROM cr_week  WHERE week_start = ?').run(weekStartNow);
+      db.prepare('DELETE FROM low_week WHERE week_start = ?').run(weekStartNow);
 
-      const freshLow: LowWeekStore = { weekStart: currentWeekStart(), days: { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] } };
-      await writeJson(LOW_PATH, freshLow);
-
-      console.log('[CR] Weekly recap posted (oublis + low scores) & stores reset.');
+      console.log('[CR] Weekly recap (DB) posted & current week cleared.');
     } catch (e) {
-      console.error('[CR] Weekly reset job failed:', e);
+      console.error('[CR] Weekly reset job failed (DB):', e);
     }
   }, { timezone: tz });
 }

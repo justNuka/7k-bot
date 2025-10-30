@@ -5,7 +5,35 @@ import { readJson } from '../utils/storage.js';
 export function runMigrations() {
   const sql = readFileSync('src/db/schema.sql', 'utf8');
   db.exec(sql);
+  ensureNotifsTimestamps();
   console.log('[DB] schema ensured');
+}
+
+/** Ajoute created_at / updated_at à notifs si elles n’existent pas déjà */
+function ensureNotifsTimestamps() {
+  const cols = db.prepare(`PRAGMA table_info(notifs)`).all() as Array<{ name: string }>;
+  const names = new Set(cols.map(c => c.name));
+
+  const tx = db.transaction(() => {
+    if (!names.has('created_at')) {
+      db.exec(`
+        ALTER TABLE notifs
+          ADD COLUMN created_at TEXT NOT NULL
+          DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      `);
+    }
+    if (!names.has('updated_at')) {
+      db.exec(`
+        ALTER TABLE notifs
+          ADD COLUMN updated_at TEXT NOT NULL
+          DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      `);
+    }
+    // Optionnel : forcer une valeur sur les anciennes lignes
+    db.exec(`UPDATE notifs SET created_at = COALESCE(created_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                             updated_at = COALESCE(updated_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`);
+  });
+  tx();
 }
 
 export async function migrateFromJsonIfEmpty() {
@@ -80,6 +108,7 @@ export async function migrateFromJsonIfEmpty() {
     tx(subs);
     console.log('[DB] migrated yt_subs');
   }
+
   const hasRoutes = db.prepare('SELECT count(*) c FROM yt_routes').get() as any;
   if (!hasRoutes.c) {
     const routes = await readJson<any[]>('src/data/ytRoutes.json', []);
@@ -88,4 +117,19 @@ export async function migrateFromJsonIfEmpty() {
     tx(routes);
     console.log('[DB] migrated yt_routes');
   }
+
+  // notif_panel_ref
+  const hasPanel = db.prepare('SELECT count(*) c FROM notif_panel_ref').get() as any;
+  if (!hasPanel.c) {
+    const ref = await readJson<any>('src/data/notifPanel.json', null);
+    if (ref?.channelId && ref?.messageId) {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO notif_panel_ref(id, channel_id, message_id, updated_at)
+        VALUES (1, ?, ?, ?)
+      `).run(ref.channelId, ref.messageId, now);
+      console.log('[DB] migrated notif_panel_ref');
+    }
+  }
+
 }

@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
+import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder, EmbedBuilder, Colors } from 'discord.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
 import { requireAccess, botCanManageRole } from '../utils/access.js';

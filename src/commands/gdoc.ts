@@ -45,6 +45,19 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       /* ignore si pas de logo */
     }
 
+    if (!GDOC_URL) { 
+      await interaction.reply({ content: 'GDOC_URL manquant côté serveur.', ephemeral: true });
+      pushLog({
+        ts: new Date().toISOString(),
+        level: 'error',
+        component: 'gdoc',
+        msg: `[CMD] gdoc returned an error stating that the gdoc URL is missing. Command used by ${interaction.user.tag} (${interaction.user.id}), public=${isPublic}.`,
+        meta: { userId: interaction.user.id, public: isPublic }
+      });
+
+      return;
+    }
+
     pushLog({
       ts: new Date().toISOString(),
       level: 'info',

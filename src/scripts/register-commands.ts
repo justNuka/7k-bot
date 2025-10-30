@@ -17,6 +17,10 @@ import { data as absence } from '../commands/absence.js';
 import { data as yt } from '../commands/yt.js';
 import { data as ytroute } from '../commands/ytroute.js';
 import { data as signalement } from '../commands/signalement.js';
+import { data as diag } from '../commands/diag.js';
+import { data as coaching } from '../commands/coaching.js';
+import { data as changelog } from '../commands/changelog.js';
+import { data as pingoff } from '../commands/pingoff.js';
 
 const token  = process.env.DISCORD_TOKEN!;
 const appId  = process.env.DISCORD_CLIENT_ID!;
@@ -40,6 +44,10 @@ const commands = [
   yt,
   ytroute,
   signalement,
+  diag,
+  coaching,
+  changelog,
+  pingoff,
 ].map(c => c.toJSON());
 
 console.log('AppId:', appId);

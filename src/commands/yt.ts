@@ -1,13 +1,23 @@
-import type { ChatInputCommandInteraction, AnyThreadChannel, TextChannel } from 'discord.js';
+// src/commands/yt.ts
+import type { ChatInputCommandInteraction, AnyThreadChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
 import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
-import { loadYTSubs, saveYTSubs, newYTId, type YTSub, runOnce } from '../jobs/ytWatch.js';
-import { fetchYTFeed } from '../utils/youtube.js';
 import { officerDeferPublic, officerEdit } from '../utils/officerReply.js';
 import { pushLog } from '../http/logs.js';
+import { fetchYTFeed } from '../utils/youtube.js';
+import {
+  listSubs, getSubByChannel, insertSub, deleteSubByChannel, updateSubThread
+} from '../db/yt.js';
+import { runOnceForChannel } from '../jobs/ytWatch.js';
+
+function newId() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  const rnd = Math.random().toString(36).slice(2, 6);
+  return `yt_${stamp}_${rnd}`;
+}
 
 export const data = new SlashCommandBuilder()
   .setName('yt')
@@ -50,70 +60,49 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const rule = COMMAND_RULES['youtube'] ?? COMMAND_RULES['notif']; // autorisations officiers
+  const rule = COMMAND_RULES['youtube'] ?? COMMAND_RULES['notif'];
   if (!(await requireAccess(interaction, { roles: rule.roles, channels: rule.channels }))) return;
 
   const sub = interaction.options.getSubcommand(true);
 
   try {
-    await officerDeferPublic(interaction); // réponse publique + miroir auto
-
-    let list = await loadYTSubs();
+    await officerDeferPublic(interaction);
 
     if (sub === 'add') {
       const channelId = interaction.options.getString('channel_id', true).trim();
       const thread = interaction.options.getChannel('thread', true) as AnyThreadChannel;
 
       if (!/^UC[A-Za-z0-9_-]{20,}$/.test(channelId)) {
-        pushLog({
-          ts: new Date().toISOString(),
-          level: 'warn',
-          component: 'yt',
-          msg: `[YT] Invalid channel ID attempted: ${channelId}`,
-          meta: { userId: interaction.user.id }
-        });
-
+        pushLog({ ts: new Date().toISOString(), level: 'warn', component: 'yt',
+          msg: `[YT] Invalid channel ID attempted: ${channelId}`, meta: { userId: interaction.user.id }});
         return officerEdit(interaction, '❌ `channel_id` invalide. Il doit ressembler à `UCxxxxx...`');
       }
-      if (list.some(s => s.channelId === channelId)) {
-        pushLog({
-          ts: new Date().toISOString(),
-          level: 'warn',
-          component: 'yt',
-          msg: `[YT] Duplicate channel ID attempted: ${channelId}`,
-          meta: { userId: interaction.user.id }
-        });
-
+      if (getSubByChannel(channelId)) {
+        pushLog({ ts: new Date().toISOString(), level: 'warn', component: 'yt',
+          msg: `[YT] Duplicate channel ID attempted: ${channelId}`, meta: { userId: interaction.user.id }});
         return officerEdit(interaction, 'ℹ️ Cette chaîne est déjà suivie.');
       }
 
-      // ping le flux pour récupérer un titre / dernière vidéo
       let title = '';
       let lastVideoId: string | undefined;
       try {
         const items = await fetchYTFeed(channelId);
         title = items[0]?.title ? `[YT] ${items[0].title}` : '';
-        lastVideoId = items[0]?.videoId; // on seed pour éviter un spam initial
+        lastVideoId = items[0]?.videoId;
       } catch {}
 
-      const subObj: YTSub = {
-        id: newYTId(),
-        channelId,
-        threadId: thread.id,
-        title,
-        lastVideoId,
-        addedBy: interaction.user.id
-      };
-      list.push(subObj);
-      await saveYTSubs(list);
-
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'yt',
-        msg: `[YT] Channel added: ${channelId} (by ${interaction.user.id})`,
-        meta: { channelId, threadId: thread.id, userId: interaction.user.id }
+      insertSub({
+        id: newId(),
+        channel_id: channelId,
+        thread_id: thread.id,
+        title: title || null,
+        last_video: lastVideoId ?? null,
+        added_by: interaction.user.id,
       });
+
+      pushLog({ ts: new Date().toISOString(), level: 'info', component: 'yt',
+        msg: `[YT] Channel added: ${channelId} (by ${interaction.user.id})`,
+        meta: { channelId, threadId: thread.id, userId: interaction.user.id } });
 
       const e = makeEmbed({
         title: '✅ Chaîne ajoutée',
@@ -128,33 +117,23 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     if (sub === 'remove') {
       const channelId = interaction.options.getString('channel_id', true).trim();
-      const idx = list.findIndex(s => s.channelId === channelId);
-      if (idx === -1) return officerEdit(interaction, '❌ Chaîne introuvable.');
-      const [rm] = list.splice(idx, 1);
-      await saveYTSubs(list);
+      if (!getSubByChannel(channelId)) return officerEdit(interaction, '❌ Chaîne introuvable.');
+      deleteSubByChannel(channelId);
 
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'yt',
+      pushLog({ ts: new Date().toISOString(), level: 'info', component: 'yt',
         msg: `[YT] Channel removed: ${channelId} (by ${interaction.user.id})`,
-        meta: { channelId, threadId: rm.threadId, userId: interaction.user.id }
-      });
+        meta: { channelId, userId: interaction.user.id } });
 
-      return officerEdit(interaction, `🗑️ Suivi supprimé pour \`${rm.channelId}\`.`);
+      return officerEdit(interaction, `🗑️ Suivi supprimé pour \`${channelId}\`.`);
     }
 
     if (sub === 'list') {
+      const list = listSubs();
       if (!list.length) return officerEdit(interaction, 'Aucune chaîne suivie.');
-      const lines = list.map(s => `• \`${s.channelId}\` → <#${s.threadId}>  ${s.lastVideoId ? `(last: \`${s.lastVideoId}\`)` : ''}`).join('\n');
+      const lines = list.map(s => `• \`${s.channel_id}\` → <#${s.thread_id}>  ${s.last_video ? `(last: \`${s.last_video}\`)` : ''}`).join('\n');
 
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'yt',
-        msg: `[YT] Channel list requested (by ${interaction.user.id})`,
-        meta: { userId: interaction.user.id }
-      });
+      pushLog({ ts: new Date().toISOString(), level: 'info', component: 'yt',
+        msg: `[YT] Channel list requested (by ${interaction.user.id})`, meta: { userId: interaction.user.id } });
 
       return officerEdit(interaction, { embeds: [makeEmbed({ title: '📜 Chaînes suivies', description: lines })] });
     }
@@ -162,55 +141,41 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     if (sub === 'setthread') {
       const channelId = interaction.options.getString('channel_id', true).trim();
       const thread = interaction.options.getChannel('thread', true) as AnyThreadChannel;
-      const s = list.find(x => x.channelId === channelId);
-      if (!s) return officerEdit(interaction, '❌ Chaîne introuvable.');
-      s.threadId = thread.id;
-      await saveYTSubs(list);
+      if (!getSubByChannel(channelId)) return officerEdit(interaction, '❌ Chaîne introuvable.');
 
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'yt',
+      updateSubThread(channelId, thread.id);
+
+      pushLog({ ts: new Date().toISOString(), level: 'info', component: 'yt',
         msg: `[YT] Channel thread updated: ${channelId} (by ${interaction.user.id})`,
-        meta: { channelId, threadId: thread.id, userId: interaction.user.id }
-      });
+        meta: { channelId, threadId: thread.id, userId: interaction.user.id } });
 
       return officerEdit(interaction, `✏️ Thread mis à jour pour \`${channelId}\` → <#${thread.id}>.`);
     }
 
     if (sub === 'test') {
       const channelId = interaction.options.getString('channel_id', true).trim();
-      const s = list.find(x => x.channelId === channelId);
-      if (!s) return officerEdit(interaction, '❌ Chaîne introuvable.');
-      try {
-        const items = await fetchYTFeed(channelId);
-        if (!items.length) return officerEdit(interaction, 'Aucune vidéo trouvée sur le flux.');
-        // poste la dernière vidéo connue (la plus récente)
-        const last = items[0];
-        const content = `▶️ **Test** — ${last.title}\n${last.link}`;
-        const chan = await interaction.client.channels.fetch(s.threadId).catch(() => null);
-        if (!chan || !chan.isTextBased()) return officerEdit(interaction, 'Thread introuvable/non textuel.');
-        await (chan as any).send({ content });
+      const subRow = getSubByChannel(channelId);
+      if (!subRow) return officerEdit(interaction, '❌ Chaîne introuvable.');
 
-        pushLog({
-          ts: new Date().toISOString(),
-          level: 'info',
-          component: 'yt',
+      try {
+        const last = await runOnceForChannel(interaction.client, channelId);
+        if (!last) return officerEdit(interaction, 'Aucune vidéo trouvée sur le flux.');
+
+        const chan = await interaction.client.channels.fetch(subRow.thread_id).catch(() => null);
+        if (!chan || !chan.isTextBased()) return officerEdit(interaction, 'Thread introuvable/non textuel.');
+        // @ts-ignore
+        await chan.send({ content: `▶️ **Test** — ${last.title}\n${last.link}` });
+
+        pushLog({ ts: new Date().toISOString(), level: 'info', component: 'yt',
           msg: `[YT] Test video posted for channel: ${channelId} (by ${interaction.user.id})`,
-          meta: { channelId, threadId: s.threadId, userId: interaction.user.id }
-        });
+          meta: { channelId, threadId: subRow.thread_id, userId: interaction.user.id } });
 
         return officerEdit(interaction, '✅ Test envoyé.');
       } catch (e) {
         console.error('[YT test] fail', e);
-        pushLog({
-          ts: new Date().toISOString(),
-          level: 'error',
-          component: 'yt',
+        pushLog({ ts: new Date().toISOString(), level: 'error', component: 'yt',
           msg: `[YT] Test failed for channel: ${channelId} (by ${interaction.user.id})`,
-          meta: { channelId, userId: interaction.user.id, error: (e as Error).message }
-        });
-
+          meta: { channelId, userId: interaction.user.id, error: (e as Error).message } });
         return officerEdit(interaction, '❌ Échec du test.');
       }
     }
@@ -218,14 +183,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   } catch (e) {
     console.error(e);
     await safeError(interaction, 'Erreur sur /yt.');
-    pushLog({
-      ts: new Date().toISOString(),
-      level: 'error',
-      component: 'yt',
+    pushLog({ ts: new Date().toISOString(), level: 'error', component: 'yt',
       msg: `[YT] /yt command error (by ${interaction.user.id})`,
-      meta: { userId: interaction.user.id, error: (e as Error).message }
-    });
-    return;
+      meta: { userId: interaction.user.id, error: (e as Error).message } });
   }
 }
 

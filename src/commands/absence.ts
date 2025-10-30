@@ -7,35 +7,16 @@ dayjs.extend(utc); dayjs.extend(tz);
 
 import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
-import { readJson, writeJson } from '../utils/storage.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
 import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { daysLeftInclusive, discordAbsolute, discordRelative } from '../utils/time.js';
 import { pushLog } from '../http/logs.js';
 
-const STORE = 'src/data/absences.json';
+// DB
+import { insertAbsence, listActiveAbsences } from '../db/absences.js';
+
 const TZ = process.env.RESET_CRON_TZ || 'Europe/Paris';
-
-type Absence = {
-  id: string;
-  userId: string;
-  start: string; // ISO
-  end: string;   // ISO (inclusif)
-  reason?: string;
-  note?: string;
-  createdAt: string; // ISO
-};
-
-type Store = { items: Absence[] };
-
-function newId() {
-  const stamp = dayjs().format('YYYYMMDD_HHmmss');
-  const rnd = Math.random().toString(36).slice(2,6);
-  return `abs_${stamp}_${rnd}`;
-}
-async function load(): Promise<Store>  { return readJson<Store>(STORE, { items: [] }); }
-async function save(s: Store) { return writeJson(STORE, s); }
 
 export const data = new SlashCommandBuilder()
   .setName('absence')
@@ -59,11 +40,11 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
   try {
     if (sub === 'add') {
-      // Accessible à tous (membres/visiteurs/recrues) => pas de requireAccess spécial ici
+      // Ouvert à tous
       await interaction.deferReply({ ephemeral: true });
 
-      const debut = interaction.options.getString('debut', true);
-      const fin   = interaction.options.getString('fin', true);
+      const debut  = interaction.options.getString('debut', true);
+      const fin    = interaction.options.getString('fin', true);
       const reason = interaction.options.getString('raison') ?? undefined;
       const note   = interaction.options.getString('note') ?? undefined;
 
@@ -72,78 +53,69 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       if (!s.isValid() || !e.isValid()) return interaction.editReply('❌ Dates invalides (format: `YYYY-MM-DD`).');
       if (e.isBefore(s)) return interaction.editReply('❌ La date de fin doit être **après ou égale** à la date de début.');
 
-      const store = await load();
-      const abs: Absence = {
-        id: newId(),
+      const row = insertAbsence({
         userId: interaction.user.id,
-        start: s.toISOString(),
-        end: e.toISOString(),
-        reason, note,
-        createdAt: new Date().toISOString(),
-      };
-      store.items.push(abs);
-      await save(store);
+        startIso: s.toISOString(),
+        endIso: e.toISOString(),
+        reason, note
+      });
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
         component: 'absence',
         msg: `Absence ajoutée pour <@${interaction.user.id}>`,
-        meta: { id: abs.id, start: abs.start, end: abs.end, reason: abs.reason || null }
+        meta: { id: row.id, start: row.start_iso, end: row.end_iso, reason: row.reason || null }
       });
 
       return interaction.editReply({
         embeds: [makeEmbed({
           title: '📝 Absence enregistrée',
           fields: [
-            { name: 'Période', value: `${discordAbsolute(abs.start, 'F')} → ${discordAbsolute(abs.end, 'F')}`, inline: false },
-            ...(reason ? [{ name: 'Raison', value: reason, inline: true }] : []),
-            ...(note   ? [{ name: 'Note',   value: note,   inline: false }] : []),
+            { name: 'Période', value: `${discordAbsolute(row.start_iso, 'F')} → ${discordAbsolute(row.end_iso, 'F')}`, inline: false },
+            ...(row.reason ? [{ name: 'Raison', value: row.reason, inline: true }] : []),
+            ...(row.note   ? [{ name: 'Note',   value: row.note,   inline: false }] : []),
           ]
         })]
       });
     }
 
     if (sub === 'list') {
-      // Garde officiers
+      // Officiers only
       const rule = COMMAND_RULES['roleset'] ?? { roles: [ROLE_IDS.OFFICIERS], channels: [] };
       if (!(await requireAccess(interaction, { roles: rule.roles, channels: rule.channels }))) return;
 
       await officerDefer(interaction); // smart (ephemeral hors salon officiers)
 
-      const store = await load();
-      if (!store.items.length) return officerEdit(interaction, 'Aucune absence enregistrée.');
+      const items = listActiveAbsences();
+      if (!items.length) return officerEdit(interaction, 'Aucune absence en cours / à venir.');
 
-      // on affiche trié par date de début
-      const rows = store.items
-        .sort((a,b)=> a.start.localeCompare(b.start))
-        .map(a => {
-          const finAbs = discordAbsolute(a.end, 'D');      // ex: 20 Oct 2025
-          const finRel = discordRelative(a.end);           // ex: (dans 3 jours)
-          const left   = daysLeftInclusive(a.end, TZ);     // ex: 3
-          const span   = `${discordAbsolute(a.start,'D')} → ${discordAbsolute(a.end,'D')}`;
+      const rows = items.map(a => {
+        const finAbs = discordAbsolute(a.end_iso, 'D');
+        const finRel = discordRelative(a.end_iso);
+        const left   = daysLeftInclusive(a.end_iso, TZ);
+        const span   = `${discordAbsolute(a.start_iso,'D')} → ${discordAbsolute(a.end_iso,'D')}`;
 
-          const parts = [
-            `• <@${a.userId}> — ${span}`,
-            `fin: ${finAbs} ${finRel}`,
-            `restants: **${left}**j`
-          ];
-
-          if (a.reason) parts.push(`_${a.reason}_`);
-          return parts.join(' — ');
-        });
+        const parts = [
+          `• <@${a.user_id}> — ${span}`,
+          `fin: ${finAbs} ${finRel}`,
+          `restants: **${left}**j`
+        ];
+        if (a.reason) parts.push(`_${a.reason}_`);
+        return parts.join(' — ');
+      });
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
         component: 'absence',
         msg: `Liste des absences consultée par <@${interaction.user.id}>`,
-        meta: { count: store.items.length }
+        meta: { count: items.length }
       });
 
       return officerEdit(interaction, {
         embeds: [makeEmbed({
-          title: `📅 Absences en cours (${store.items.length})`,
+          title: `📅 Absences en cours / à venir (${items.length})`,
           description: rows.join('\n')
         })]
       });

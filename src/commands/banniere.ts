@@ -1,3 +1,4 @@
+// src/commands/banniere.ts
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
 import dayjs from 'dayjs';
@@ -7,27 +8,21 @@ dayjs.extend(utc); dayjs.extend(tz);
 
 import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
-import { readJson, writeJson } from '../utils/storage.js';
 import { CHANNEL_IDS, COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
 import { discordAbsolute } from '../utils/time.js';
-import { officerDefer, officerEdit, officerReply } from '../utils/officerReply.js';
+import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { MIRROR_PING_ALLOWLIST, MIRROR_PING_BLOCKLIST, cmdKey } from '../config/mirror.js';
 import { sendToChannel } from '../utils/send.js';
 import { pushLog } from '../http/logs.js';
 
-const STORE = 'src/data/banners.json';
-const TZ = process.env.RESET_CRON_TZ || 'Europe/Paris';
+// ⬇️ DB
+import {
+  insertBanner, listUpcomingBanners, listAllBanners, getNextBanner,
+  removeBannerById, getBannerById, updateBanner, type BannerRow
+} from '../db/banners.js';
 
-type Banner = {
-  id: string;
-  name: string;
-  start: string; // ISO
-  end: string;   // ISO
-  note?: string;
-  image?: string;
-  addedBy: string;
-};
+const TZ = process.env.RESET_CRON_TZ || 'Europe/Paris';
 
 function newId() {
   const stamp = dayjs().format('YYYYMMDD_HHmmss');
@@ -40,8 +35,8 @@ function parseLocal(dateStr: string, timeStr: string) {
   return d.isValid() ? d : null;
 }
 
-function fmtRange(b: Banner) {
-  return `${discordAbsolute(b.start, 'F')} → ${discordAbsolute(b.end, 'F')}`;
+function fmtRangeIso(startIso: string, endIso: string) {
+  return `${discordAbsolute(startIso, 'F')} → ${discordAbsolute(endIso, 'F')}`;
 }
 
 export const data = new SlashCommandBuilder()
@@ -97,19 +92,19 @@ export const data = new SlashCommandBuilder()
 
 export async function execute(interaction: ChatInputCommandInteraction) {
   const rule = COMMAND_RULES['banniere'];
-  if (!(await requireAccess(interaction, { roles: rule.roles, channels: [] }))) return; // 🔄 on ignore les channels ici
+  if (!(await requireAccess(interaction, { roles: rule.roles, channels: [] }))) return;
 
   const sub = interaction.options.getSubcommand(true);
   const FORCE_PUBLIC = sub === 'list' || sub === 'next' || sub === 'remove' || sub === 'edit' || sub === 'add';
 
   try {
     if (FORCE_PUBLIC) {
-      await interaction.deferReply({ ephemeral: false }); // public
+      await interaction.deferReply({ ephemeral: false });
     } else {
-      await officerDefer(interaction);                    // smart ephemeral + miroir
+      await officerDefer(interaction);
     }
-    let list = await readJson<Banner[]>(STORE, []);
-    const now = dayjs().tz(TZ);
+
+    const nowIso = dayjs().toISOString();
 
     if (sub === 'add') {
       const name = interaction.options.getString('nom', true);
@@ -122,34 +117,31 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       const start = parseLocal(sd, sh);
       const end = parseLocal(ed, eh);
-      if (!start || !end)
-        return officerEdit(interaction, '❌ Dates/heures invalides (formats: `YYYY-MM-DD` et `HH:MM`).');
-      if (!end.isAfter(start))
-        return officerEdit(interaction, '❌ La date de fin doit être **après** la date de début.');
+      if (!start || !end) return officerEdit(interaction, '❌ Dates/heures invalides (formats: `YYYY-MM-DD` et `HH:MM`).');
+      if (!end.isAfter(start)) return officerEdit(interaction, '❌ La date de fin doit être **après** la date de début.');
 
-      const b: Banner = {
+      const b: BannerRow = {
         id: newId(),
         name,
-        start: start.toISOString(),
-        end: end.toISOString(),
-        note, image,
-        addedBy: interaction.user.id,
+        start_iso: start.toISOString(),
+        end_iso: end.toISOString(),
+        note: note ?? null,
+        image: image ?? null,
+        added_by: interaction.user.id,
       };
-      list.push(b);
-      list.sort((a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf());
-      await writeJson(STORE, list);
+      insertBanner(b);
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'action',
         component: 'banniere',
         msg: `Nouvelle bannière ajoutée : ${b.name}`,
-        meta: { id: b.id, addedBy: interaction.user.id, start: b.start, end: b.end }
+        meta: { id: b.id, addedBy: interaction.user.id, start: b.start_iso, end: b.end_iso }
       });
 
       const emb = makeEmbed({
         title: '🧾 Bannière ajoutée',
-        description: `**${b.name}**\n${fmtRange(b)}`,
+        description: `**${b.name}**\n${fmtRangeIso(b.start_iso, b.end_iso)}`,
         footer: `ID: ${b.id}`,
         timestamp: new Date(),
       });
@@ -160,11 +152,12 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     if (sub === 'list') {
-      const upcoming = list.filter(b => dayjs(b.end).isAfter(now));
-      if (!upcoming.length) {
-        return officerEdit(interaction, { content: 'Aucune bannière à venir.', flags: undefined });
-      }
-      const lines = upcoming.map(b => `• **${b.name}** — ${fmtRange(b)} — \`${b.id}\``).join('\n');
+      const upcoming = listUpcomingBanners(nowIso);
+      if (!upcoming.length) return officerEdit(interaction, { content: 'Aucune bannière à venir.', flags: undefined });
+
+      const lines = upcoming
+        .map(b => `• **${b.name}** — ${fmtRangeIso(b.start_iso, b.end_iso)} — \`${b.id}\``)
+        .join('\n');
 
       pushLog({
         ts: new Date().toISOString(),
@@ -180,12 +173,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     if (sub === 'next') {
-      const upcoming = list.filter(b => dayjs(b.end).isAfter(now))
-        .sort((a, b) => dayjs(a.start).valueOf() - dayjs(b.start).valueOf());
-      if (!upcoming.length)
-        return officerEdit(interaction, 'Aucune bannière à venir.');
-      const b = upcoming[0];
-      
+      const b = getNextBanner(nowIso);
+      if (!b) return officerEdit(interaction, 'Aucune bannière à venir.');
+
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
@@ -196,7 +186,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       const emb = makeEmbed({
         title: '⏭️ Prochaine bannière',
-        description: `**${b.name}**\n${fmtRange(b)}`,
+        description: `**${b.name}**\n${fmtRangeIso(b.start_iso, b.end_iso)}`,
         footer: `ID: ${b.id}`,
         timestamp: new Date(),
       });
@@ -207,8 +197,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     if (sub === 'remove') {
       const id = interaction.options.getString('id', true);
-      const idx = list.findIndex(b => b.id === id);
-      if (idx === -1) {
+      const ok = removeBannerById(id);
+      if (!ok) {
         pushLog({
           ts: new Date().toISOString(),
           level: 'warn',
@@ -216,27 +206,23 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           msg: `Échec suppression bannière (ID introuvable) : ${id}`,
           meta: { attemptedBy: interaction.user.id }
         });
-
         return officerEdit(interaction, '❌ ID introuvable.');
       }
-        
-      const [rm] = list.splice(idx, 1);
-      await writeJson(STORE, list);
-      
+
       pushLog({
         ts: new Date().toISOString(),
         level: 'warn',
         component: 'banniere',
-        msg: `Bannière supprimée : ${rm.name}`,
-        meta: { id: rm.id, removedBy: interaction.user.id }
+        msg: `Bannière supprimée`,
+        meta: { id, removedBy: interaction.user.id }
       });
 
-      return officerEdit(interaction, `🗑️ Bannière **${rm.name}** supprimée (\`${rm.id}\`).`);
+      return officerEdit(interaction, `🗑️ Bannière supprimée (\`${id}\`).`);
     }
 
     if (sub === 'edit') {
       const id = interaction.options.getString('id', true);
-      const b = list.find(x => x.id === id);
+      const b = getBannerById(id);
       if (!b) return officerEdit(interaction, '❌ ID introuvable.');
 
       const nm = interaction.options.getString('nom') ?? undefined;
@@ -247,7 +233,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       const note = interaction.options.getString('note') ?? undefined;
       const image = interaction.options.getString('image') ?? undefined;
 
-      if (nm) b.name = nm;
       if ((sD && !sH) || (!sD && sH) || (eD && !eH) || (!eD && eH)) {
         pushLog({
           ts: new Date().toISOString(),
@@ -256,41 +241,22 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           msg: `Échec modification bannière (date/heure incomplète) : ${b.name}`,
           meta: { id: b.id, editedBy: interaction.user.id }
         });
-
         return officerEdit(interaction, '❌ Pour modifier une date, fournis **date + heure** (début et/ou fin).');
       }
-        
+
+      let startIso = b.start_iso;
+      let endIso = b.end_iso;
       if (sD && sH) {
         const s = parseLocal(sD, sH);
-        if (!s) {
-          pushLog({
-            ts: new Date().toISOString(),
-            level: 'warn',
-            component: 'banniere',
-            msg: `Échec modification bannière (début invalide) : ${b.name}`,
-            meta: { id: b.id, editedBy: interaction.user.id }
-          });
-
-          return officerEdit(interaction, '❌ Début invalide.');
-        }
-        b.start = s.toISOString();
+        if (!s) return officerEdit(interaction, '❌ Début invalide.');
+        startIso = s.toISOString();
       }
       if (eD && eH) {
         const e = parseLocal(eD, eH);
-        if (!e) {
-          pushLog({
-            ts: new Date().toISOString(),
-            level: 'warn',
-            component: 'banniere',
-            msg: `Échec modification bannière (fin invalide) : ${b.name}`,
-            meta: { id: b.id, editedBy: interaction.user.id }
-          });
-
-          return officerEdit(interaction, '❌ Fin invalide.');
-        } 
-        b.end = e.toISOString();
+        if (!e) return officerEdit(interaction, '❌ Fin invalide.');
+        endIso = e.toISOString();
       }
-      if (dayjs(b.end).isBefore(dayjs(b.start))) {
+      if (dayjs(endIso).isBefore(dayjs(startIso))) {
         pushLog({
           ts: new Date().toISOString(),
           level: 'warn',
@@ -298,58 +264,56 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           msg: `Échec modification bannière (fin avant début) : ${b.name}`,
           meta: { id: b.id, editedBy: interaction.user.id }
         });
-
         return officerEdit(interaction, '❌ La fin doit être après le début.');
       }
-      if (note !== undefined) b.note = note;
-      if (image !== undefined) b.image = image;
 
-      await writeJson(STORE, list);
+      updateBanner({
+        id,
+        name: nm ?? b.name,
+        start_iso: startIso,
+        end_iso: endIso,
+        note: note !== undefined ? note : b.note,
+        image: image !== undefined ? image : b.image,
+      });
+
+      const updated = getBannerById(id)!;
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'info',
         component: 'banniere',
-        msg: `Bannière modifiée : ${b.name}`,
-        meta: { id: b.id, editedBy: interaction.user.id }
+        msg: `Bannière modifiée : ${updated.name}`,
+        meta: { id: updated.id, editedBy: interaction.user.id }
       });
 
       const emb = makeEmbed({
         title: '✏️ Bannière modifiée',
-        description: `**${b.name}**\n${fmtRange(b)}`,
-        footer: `ID: ${b.id}`,
+        description: `**${updated.name}**\n${fmtRangeIso(updated.start_iso, updated.end_iso)}`,
+        footer: `ID: ${updated.id}`,
       });
-      if (b.image) emb.setImage(b.image);
-      if (b.note) emb.addFields({ name: 'Note', value: b.note });
+      if (updated.image) emb.setImage(updated.image);
+      if (updated.note) emb.addFields({ name: 'Note', value: updated.note });
       return officerEdit(interaction, { embeds: [emb] });
     }
 
+    // Mirroring “trace” (inchangé)
     try {
-      const subCmd = sub;
-      const key = cmdKey('banniere', subCmd);
-
-      // Skip si blocklist
+      const key = cmdKey('banniere', sub);
       if (!MIRROR_PING_BLOCKLIST.has(key) && !MIRROR_PING_BLOCKLIST.has('banniere')) {
         const mention = (MIRROR_PING_ALLOWLIST.has(key) || MIRROR_PING_ALLOWLIST.has('banniere'))
           ? (ROLE_IDS.OFFICIERS ? `<@&${ROLE_IDS.OFFICIERS}> ` : '')
           : '';
-
-        const header = `${mention}🧾 **Trace /banniere ${subCmd}** — par <@${interaction.user.id}> depuis <#${interaction.channelId}>`;
-
+        const header = `${mention}🧾 **Trace /banniere ${sub}** — par <@${interaction.user.id}> depuis <#${interaction.channelId}>`;
         const embed = makeEmbed({
           title: '🧾 Commande /banniere exécutée',
           fields: [
-            { name: 'Sous-commande', value: subCmd, inline: true },
+            { name: 'Sous-commande', value: sub, inline: true },
             { name: 'Utilisateur', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Canal', value: `<#${interaction.channelId}>`, inline: true },
           ],
           timestamp: new Date(),
         });
-
-        await sendToChannel(interaction.client, CHANNEL_IDS.RETOURS_BOT, {
-          content: header,
-          embeds: [embed],
-        });
+        await sendToChannel(interaction.client, CHANNEL_IDS.RETOURS_BOT, { content: header, embeds: [embed] });
       }
     } catch (mirrorError) {
       console.error('[MIRROR_BANNIERE] erreur mirror', mirrorError);

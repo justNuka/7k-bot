@@ -36,6 +36,10 @@ import * as kickCmd from './commands/kick.js';
 import * as ytCmd from './commands/yt.js';
 import * as ytrouteCmd from './commands/ytroute.js';
 import * as signalementCmd from './commands/signalement.js';
+import diag, * as diagCmg from './commands/diag.js';
+import * as coachingCmd from './commands/coaching.js';
+import * as changelogCmg from './commands/changelog.js';
+import * as pingoffCmd from './commands/pingoff.js';
 
 // Utils
 import { sendToChannel } from './utils/send.js'; // envoi de messages
@@ -59,6 +63,8 @@ type CRCounters = Record<string, number>;
 // HTTP Server
 import { startHttpServer } from './http/server.js';
 import { bindDiscordClient } from './http/context.js';
+import { handleCrButtons } from './handlers/crButtons.js';
+import { announceVersionIfNeeded } from './startup/versionAnnounce.js';
 
 
 // ------------------------------------------------------------------------ //
@@ -86,6 +92,10 @@ const commandMap = new Map<string, { execute: Function }>([
   ['yt', ytCmd],
   ['ytroute', ytrouteCmd],
   ['signalement', signalementCmd],
+  ['diag', diagCmg],
+  ['coaching', coachingCmd],
+  ['changelog', changelogCmg],
+  ['pingoff', pingoffCmd],
 ]);
 
 const client = new Client({
@@ -102,6 +112,8 @@ const client = new Client({
 // Vérif que le bot est prêt
 client.once('clientReady', async () => {
   console.log(`Connecté comme ${client.user?.tag}`);
+
+  announceVersionIfNeeded(client); // Vérifie si besoin de faire une annonce pour le changelog
 
   registerWeeklyResetJob(client); // job CR hebdo
 
@@ -147,21 +159,14 @@ client.on('interactionCreate', async (i) => {
   try {
     // Buttons
     if (i.isButton()) {
-      // 1) Notif toggles
+      // 1) Boutons CR
+      const handled = await handleCrButtons(i);
+      if (handled) return;
+
+      // 2) Notif toggles
       if (i.customId.startsWith('notif:toggle:')) {
         await handleNotifButton(i);
         await refreshPanelAll(i.client);
-        return;
-      }
-
-      // 2) Confirmation reset CR
-      if (i.customId.startsWith('cr:confirm:resetTotal:')) {
-        const yes = i.customId.endsWith(':yes');
-        if (!yes) return i.update({ content: 'Opération annulée.', components: [] });
-        const counters = await readJson<CRCounters>('src/data/crCounters.json', {});
-        for (const k of Object.keys(counters)) delete counters[k];
-        await writeJson('src/data/crCounters.json', counters);
-        await i.update({ content: '✅ RESET global effectué.', components: [] });
         return;
       }
 

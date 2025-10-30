@@ -7,8 +7,8 @@ import { makeEmbed } from '../utils/embed.js';
 import { safeError } from '../utils/reply.js';
 import { COMMAND_RULES, ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
-import { sendToChannel } from '../utils/send.js';
-import { savePanelRef, buildPanelComponents, refreshPanelAll } from '../utils/notifPanel.js';
+import { buildPanelComponents, refreshPanelAll } from '../utils/notifPanel.js';
+import { setPanelRef } from '../db/panel.js';
 import { pushLog } from '../http/logs.js';
 
 export const data = new SlashCommandBuilder()
@@ -65,7 +65,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
     const msg = await chan.send({ embeds: [e], components });
-    await savePanelRef({ channelId: chan.id, messageId: msg.id });
+    setPanelRef({ channel_id: chan.id, message_id: msg.id });
 
     await refreshPanelAll(interaction.client);
 

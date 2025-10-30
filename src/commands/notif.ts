@@ -1,3 +1,4 @@
+// src/commands/notif.ts
 import type { ChatInputCommandInteraction, Role, TextChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
 import { makeEmbed } from '../utils/embed.js';
@@ -5,9 +6,12 @@ import { safeError } from '../utils/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
 import { requireAccess } from '../utils/access.js';
 import { hhmmToSpec } from '../utils/cron.js';
-import { loadNotifs, reloadAllNotifs, saveNotifs, startNotifTask, stopNotifTask, type Notif } from '../jobs/notifs.js';
+import {
+  loadNotifs, startNotifTask, stopNotifTask, reloadAllNotifs,
+  createNotif, editNotif, removeNotif, type Notif
+} from '../jobs/notifs.js'; // ⬅️ MAJ imports (plus de saveNotifs ici)
 import { sendToChannel } from '../utils/send.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js'; // 🆕 mirroring helper
+import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { pushLog } from '../http/logs.js';
 
 function newId() {
@@ -73,7 +77,6 @@ export const data = new SlashCommandBuilder()
   );
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  // 🔐 Rôle seulement (on n’impose plus un channel unique : mirroring géré par officerReply utils)
   const rule = COMMAND_RULES['notif'];
   if (!(await requireAccess(interaction, { roles: rule.roles, channels: [] }))) return;
 
@@ -81,7 +84,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   const tz = process.env.RESET_CRON_TZ || 'Europe/Paris';
 
   try {
-    await officerDefer(interaction); // 🆕 au lieu de deferReply({ephemeral:true})
+    await officerDefer(interaction);
     let list = await loadNotifs();
 
     if (sub === 'add') {
@@ -104,9 +107,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         createdBy: interaction.user.id
       };
 
-      list.push(n);
-      await saveNotifs(list);
-      startNotifTask(interaction.client, n); // démarre le job immédiatement
+      // ⬇️ DB + start cron
+      createNotif(interaction.client, n);
+      list = await loadNotifs();
 
       pushLog({
         ts: new Date().toISOString(),
@@ -148,21 +151,21 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     if (sub === 'remove') {
       const id = interaction.options.getString('id', true);
-      const idx = list.findIndex(n => n.id === id);
-      if (idx === -1) return officerEdit(interaction, '❌ Notification introuvable.');
-      stopNotifTask(id);
-      const [removed] = list.splice(idx, 1);
-      await saveNotifs(list);
-      
+      const found = list.find(n => n.id === id);
+      if (!found) return officerEdit(interaction, '❌ Notification introuvable.');
+
+      removeNotif(id); // ⬅️ stop + delete
+      list = await loadNotifs();
+
       pushLog({
         ts: new Date().toISOString(),
         level: 'action',
         component: 'notif',
         msg: `[NOTIF] Removed by ${interaction.user.tag}`,
-        meta: { notifId: removed.id }
+        meta: { notifId: id }
       });
 
-      return officerEdit(interaction, `🗑️ Notification **${removed.id}** supprimée.`);
+      return officerEdit(interaction, `🗑️ Notification **${id}** supprimée.`);
     }
 
     if (sub === 'test') {
@@ -170,16 +173,9 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       const n = list.find(x => x.id === id);
       if (!n) return officerEdit(interaction, '❌ Notification introuvable.');
 
-      // Confirme côté interaction
       await officerEdit(interaction, '▶️ Test envoyé.');
-
-      // Envoi réel dans le salon cible (hors interaction)
       const content = n.message.replace(/<@&ROLE>/g, `<@&${n.roleId}>`);
-      try {
-        await sendToChannel(interaction.client, n.channelId, content);
-      } catch (e) {
-        console.error('[NOTIF TEST] fail', e);
-      }
+      try { await sendToChannel(interaction.client, n.channelId, content); } catch {}
       return;
     }
 
@@ -191,56 +187,41 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       const freq  = interaction.options.getString('freq')  as any | undefined;
       const message = interaction.options.getString('message') || undefined;
 
-      const n = list.find(x => x.id === id);
-      if (!n) {
-        pushLog({
-          ts: new Date().toISOString(),
-          level: 'warn',
-          component: 'notif',
-          msg: `[NOTIF] Edit failed - not found - by ${interaction.user.tag}`,
-          meta: { notifId: id }
-        });
+      const cur = list.find(x => x.id === id);
+      if (!cur) return officerEdit(interaction, '❌ Notification introuvable.');
 
-        return officerEdit(interaction, '❌ Notification introuvable.');
-      }
-
-      if (role) n.roleId = role.id;
-      if (chan) n.channelId = chan.id;
+      if (role) cur.roleId = role.id;
+      if (chan) cur.channelId = chan.id;
 
       if (heure || freq) {
-        // Si on ne fournit qu'une partie, mieux vaut exiger les deux pour éviter les ambiguités.
-        if (!heure || !freq) {
-          return officerEdit(interaction, '❌ Pour modifier le timing, fournis **heure ET fréquence**.');
-        }
+        if (!heure || !freq) return officerEdit(interaction, '❌ Pour modifier le timing, fournis **heure ET fréquence**.');
         const newSpec = hhmmToSpec(heure, freq);
         if (!newSpec) return officerEdit(interaction, '❌ Heure/fréquence invalide(s).');
-        n.spec = newSpec;
-        n.tz = process.env.RESET_CRON_TZ || n.tz;
+        cur.spec = newSpec;
+        cur.tz = process.env.RESET_CRON_TZ || cur.tz;
       }
+      if (message) cur.message = message;
 
-      if (message) n.message = message;
-
-      await saveNotifs(list);
-      stopNotifTask(n.id);
-      startNotifTask(interaction.client, n);
+      editNotif(interaction.client, cur); // ⬅️ DB + restart cron
+      list = await loadNotifs();
 
       pushLog({
         ts: new Date().toISOString(),
         level: 'action',
         component: 'notif',
         msg: `[NOTIF] Edited by ${interaction.user.tag}`,
-        meta: { notifId: n.id, roleId: n.roleId, channelId: n.channelId, spec: n.spec, tz: n.tz }
+        meta: { notifId: cur.id, roleId: cur.roleId, channelId: cur.channelId, spec: cur.spec, tz: cur.tz }
       });
 
       return officerEdit(interaction, {
         embeds: [makeEmbed({
           title: '✏️ Notification modifiée',
           fields: [
-            { name: 'ID', value: `\`${n.id}\``, inline: true },
-            { name: 'Rôle', value: `<@&${n.roleId}>`, inline: true },
-            { name: 'Salon', value: `<#${n.channelId}>`, inline: true },
-            { name: 'CRON', value: `\`${n.spec}\` (${n.tz})` },
-            { name: 'Message', value: n.message }
+            { name: 'ID', value: `\`${cur.id}\``, inline: true },
+            { name: 'Rôle', value: `<@&${cur.roleId}>`, inline: true },
+            { name: 'Salon', value: `<#${cur.channelId}>`, inline: true },
+            { name: 'CRON', value: `\`${cur.spec}\` (${cur.tz})` },
+            { name: 'Message', value: cur.message }
           ]
         })]
       });
@@ -256,7 +237,6 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       msg: `[NOTIF] Error for ${interaction.user.tag}`,
       meta: { error: (e as Error).message }
     });
-    return;
   }
 }
 

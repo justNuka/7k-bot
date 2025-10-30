@@ -6,6 +6,8 @@ import { log } from '../utils/logger.js';
 import { avatarUrlFrom, fetchMembersSafe } from '../utils/discordMembers.js';
 import { Client } from 'discord.js';
 import { discordClient } from './context.js';
+import { listAllAbsences, listActiveAbsences } from '../db/absences.js';
+import { getNextBanner, listAllBanners, listUpcomingBanners } from '../db/banners.js';
 
 const API_KEY = process.env.DASH_API_KEY!;
 const GUILD_ID = process.env.GUILD_ID!;
@@ -87,6 +89,17 @@ export async function startHttpServer(client: Client) {
     return { ok: true, ts: Date.now() };
   });
 
+  // --- absences (sqlite) ---
+  app.get('/absences/all', async (_req, reply) => {
+    const rows = listAllAbsences();
+    reply.send(rows);
+  });
+
+  app.get('/absences/active', async (_req, reply) => {
+    const rows = listActiveAbsences();
+    reply.send(rows);
+  });
+
   // /api/cr/top
   app.get('/api/cr/top', (req, reply) => {
     const q = (req.query ?? {}) as { limit?: string };
@@ -98,25 +111,57 @@ export async function startHttpServer(client: Client) {
   });
 
   // /api/cr/week
+  // /api/cr/week?ws=YYYY-MM-DD   (par défaut: semaine actuelle)
   app.get('/api/cr/week', (req, reply) => {
-    const w = db.prepare("SELECT strftime('%Y-%m-%d','now','weekday 1','-7 days') as ws").get() as { ws?: string } | undefined;
-    const ws = w?.ws ?? '1970-01-05';
-    const rows = db.prepare('SELECT day, user_id FROM cr_week WHERE week_start = ? ORDER BY day').all(ws);
+    const q = (req.query ?? {}) as { ws?: string };
+    const w = (q.ws ??
+      (db.prepare("SELECT strftime('%Y-%m-%d','now','weekday 1','-7 days') AS ws")
+        .get() as { ws?: string } | undefined)?.ws) || '1970-01-05';
+
+    const rows = db.prepare(
+      'SELECT day, user_id FROM cr_week WHERE week_start = ? ORDER BY day'
+    ).all(w);
+
     reply.send(rows);
   });
 
-  // /api/cr/low/week
+  // /api/cr/low/week?ws=YYYY-MM-DD   (par défaut: semaine actuelle)
   app.get('/api/cr/low/week', (req, reply) => {
-    const w = db.prepare("SELECT strftime('%Y-%m-%d','now','weekday 1','-7 days') as ws").get() as { ws?: string } | undefined;
-    const ws = w?.ws ?? '1970-01-05';
+    const q = (req.query ?? {}) as { ws?: string };
+    const w = (q.ws ??
+      (db.prepare("SELECT strftime('%Y-%m-%d','now','weekday 1','-7 days') AS ws")
+        .get() as { ws?: string } | undefined)?.ws) || '1970-01-05';
+
     const rows = db.prepare(
       'SELECT day, user_id, score, note FROM low_week WHERE week_start = ? ORDER BY day'
-    ).all(ws) as Array<{day:string;user_id:string;score:number;note?:string|null}>;
+    ).all(w) as Array<{ day: string; user_id: string; score: number; note?: string | null }>;
 
-    const map: any = { mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[] };
+    const map: any = { mon: [], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] };
     for (const r of rows) (map[r.day] ||= []).push({ user_id: r.user_id, score: r.score, note: r.note ?? null });
 
-    reply.send({ weekStart: ws, days: map });
+    reply.send({ weekStart: w, days: map });
+  });
+
+  app.get('/api/cr/history', (req, reply) => {
+    const q = (req.query ?? {}) as { limit?: string };
+    const limit = Math.max(1, Math.min(52, Number(q.limit ?? 12)));
+    const weeks = db.prepare(`
+      SELECT week_start FROM cr_weeks
+      ORDER BY week_start DESC
+      LIMIT ?
+    `).all(limit) as {week_start:string}[];
+
+    const payload = weeks.map(w => {
+      const misses = db.prepare(`
+        SELECT day, user_id FROM cr_week_history WHERE week_start=? ORDER BY day
+      `).all(w.week_start) as Array<{day:string,user_id:string}>;
+      const lows = db.prepare(`
+        SELECT day, user_id, score, note FROM low_week_history WHERE week_start=? ORDER BY day
+      `).all(w.week_start) as Array<{day:string,user_id:string,score:number,note?:string|null}>;
+      return { weekStart: w.week_start, misses, lows };
+    });
+
+    reply.send(payload);
   });
 
   app.get('/notifs', async () => {
@@ -162,15 +207,51 @@ export async function startHttpServer(client: Client) {
     return rows;
   });
 
-  app.get('/banners', async () => 
-    db.prepare('SELECT * FROM banners ORDER BY start_iso ASC').all()
-  );
+  app.get('/banners', async () => listAllBanners());
+
+  app.get('/banners/upcoming', async () => listUpcomingBanners(new Date().toISOString()));
+
+  app.get('/banners/next', async () => getNextBanner(new Date().toISOString()));
+
   app.get('/candidatures', async () => 
     db.prepare('SELECT * FROM candidatures ORDER BY created_at DESC').all()
   );
+
+  app.get('/reports', async () => {
+    const rows = db.prepare(`
+      SELECT id, target_id, note, created_by, created_at
+      FROM reports
+      ORDER BY created_at DESC
+    `).all() as any[];
+    return rows;
+  });
+
+  // Filtre par user
+  app.get('/reports/by-user', async (req, reply) => {
+    const uid = (req.query as any)?.uid as string | undefined;
+    if (!uid) return reply.code(400).send({ error: 'missing uid' });
+    const rows = db.prepare(`
+      SELECT id, target_id, note, created_by, created_at
+      FROM reports
+      WHERE target_id = ?
+      ORDER BY created_at DESC
+    `).all(uid) as any[];
+    reply.send(rows);
+  });
+
+  app.get('/notif/panel-ref', async () => {
+    const row = db.prepare(`
+      SELECT channel_id, message_id, updated_at
+      FROM notif_panel_ref
+      WHERE id = 1
+    `).get() as any || null;
+    return row ?? {};
+  });
+
   app.get('/yt/subs', async () => 
     db.prepare('SELECT * FROM yt_subs').all()
   );
+  
   app.get('/yt/routes', async () => 
     db.prepare('SELECT * FROM yt_routes').all()
   );
