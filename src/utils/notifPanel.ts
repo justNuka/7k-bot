@@ -3,7 +3,7 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, type Client, type Guild, ChannelType
 } from 'discord.js';
 import { ROLE_IDS } from '../config/permissions.js';
-import { makeEmbed } from './embed.js';
+import { makeEmbed } from './formatting/embed.js';
 
 // ⬇️ NEW: on persiste en base via le module DB
 import { getPanelRef, savePanelRef as dbSavePanelRef } from '../db/panel.js';

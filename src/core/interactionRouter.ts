@@ -1,16 +1,42 @@
 /**
  * Routeur centralisé pour toutes les interactions Discord
- * Dispatch vers commandes slash, autocomplete, ou boutons
+ * 
+ * Ce module centralise la gestion de toutes les interactions Discord reçues par le bot.
+ * Il remplace l'ancien système où la logique de routing était dispersée dans index.ts.
+ * 
+ * Types d'interactions supportés :
+ * - Slash Commands (ChatInputCommand)
+ * - Autocomplete (pour les options avec suggestions dynamiques)
+ * - Buttons (boutons dans les messages)
+ * 
+ * @module core/interactionRouter
  */
 
 import type { Interaction } from 'discord.js';
 import type { CommandModule } from '../types/index.js';
 import { routeButton } from './buttonRouter.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('InteractionRouter');
 
 /**
  * Route une interaction Discord vers le handler approprié
- * @param interaction L'interaction Discord (slash command, autocomplete, button, etc.)
- * @param commandMap Map des commandes chargées
+ * 
+ * Point d'entrée unique pour toutes les interactions. Identifie le type d'interaction
+ * et délègue au handler correspondant :
+ * - Slash commands → `command.execute()`
+ * - Autocomplete → `command.autocomplete()`
+ * - Buttons → `routeButton()`
+ * 
+ * @param interaction L'interaction Discord reçue
+ * @param commandMap Map des commandes chargées (depuis commandLoader)
+ * 
+ * @example
+ * ```ts
+ * client.on('interactionCreate', async (interaction) => {
+ *   await routeInteraction(interaction, commands);
+ * });
+ * ```
  */
 export async function routeInteraction(
   interaction: Interaction,
@@ -21,7 +47,7 @@ export async function routeInteraction(
   if (interaction.isChatInputCommand()) {
     const command = commandMap.get(interaction.commandName);
     if (!command) {
-      console.error(`[InteractionRouter] Commande inconnue: ${interaction.commandName}`);
+      log.warn({ commandName: interaction.commandName }, 'Commande inconnue');
       return;
     }
     await command.execute(interaction);
@@ -47,5 +73,5 @@ export async function routeInteraction(
   }
 
   // Autres types d'interactions (non gérés pour l'instant)
-  console.log(`[InteractionRouter] Type d'interaction non géré: ${interaction.type}`);
+  log.debug({ type: interaction.type }, 'Type d\'interaction non géré');
 }

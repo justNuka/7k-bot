@@ -3,11 +3,14 @@ import type { ChatInputCommandInteraction } from 'discord.js';
 import {
   SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, TextChannel, ChannelType
 } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES, ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
+import { requireAccess } from '../utils/discord/access.js';
 import { buildPanelComponents, refreshPanelAll } from '../utils/notifPanel.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:notifpanel');
 import { setPanelRef } from '../db/panel.js';
 import { pushLog } from '../http/logs.js';
 
@@ -79,7 +82,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.editReply('✅ Panneau publié dans le salon des rappels.');
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /notifpanel');
     await safeError(interaction, 'Impossible de publier le panneau.');
     pushLog({
       ts: new Date().toISOString(),

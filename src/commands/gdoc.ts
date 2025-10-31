@@ -9,10 +9,12 @@ import {
   ButtonStyle
 } from 'discord.js';
 import path from 'node:path';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
 
+const log = createLogger('cmd:gdoc');
 const GDOC_URL = process.env.GDOC_URL!;
 
 export const data = new SlashCommandBuilder()
@@ -92,8 +94,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       ephemeral: !isPublic
     });
   } catch (e) {
-    console.error(e);
-    await safeError(interaction, 'Impossible d’envoyer le GDoc pour le moment.');
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /gdoc');
+    await safeError(interaction, 'Impossible d\'envoyer le GDoc pour le moment.');
     pushLog({
       ts: new Date().toISOString(),
       level: 'error',

@@ -4,11 +4,14 @@ import {
   ChannelType,
   PermissionFlagsBits
 } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { CHANNEL_IDS, COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { officerDeferPublic, officerEdit } from '../utils/officerReply.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:diag');
+import { officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { pushLog } from '../http/logs.js';
 
 export const data = new SlashCommandBuilder()
@@ -138,7 +141,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /diag');
     await safeError(interaction, 'Erreur sur /diag threads.');
     pushLog({
       ts: new Date().toISOString(),

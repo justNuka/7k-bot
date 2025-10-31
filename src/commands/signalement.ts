@@ -1,12 +1,15 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
 import { pushLog } from '../http/logs.js';
 import { insertReport, listAllReports, listReportsByUser, deleteReport, getReport } from '../db/reports.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:signalement');
 
 type Report = {
   id: string;
@@ -151,7 +154,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /signalement');
     await safeError(interaction, 'Erreur sur /signalement.');
     pushLog({
       ts: new Date().toISOString(),

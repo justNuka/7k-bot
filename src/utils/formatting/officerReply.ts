@@ -1,7 +1,7 @@
 import type { ChatInputCommandInteraction, TextChannel, InteractionReplyOptions, InteractionEditReplyOptions } from 'discord.js';
-import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
-import { MIRROR_PING_BLOCKLIST, MIRROR_PING_ALLOWLIST, cmdKey } from '../config/mirror.js';
-import { sendToChannel } from './send.js';
+import { CHANNEL_IDS, ROLE_IDS } from '../../config/permissions.js';
+import { MIRROR_PING_BLOCKLIST, MIRROR_PING_ALLOWLIST, cmdKey } from '../../config/mirror.js';
+import { sendToChannel } from '../discord/send.js';
 
 function inOfficerChannel(i: ChatInputCommandInteraction) {
   return i.inGuild() && CHANNEL_IDS.RETOURS_BOT && i.channelId === CHANNEL_IDS.RETOURS_BOT;

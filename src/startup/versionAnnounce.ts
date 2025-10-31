@@ -1,6 +1,6 @@
 import type { Client, TextChannel } from 'discord.js';
 import { getMeta, setMeta } from '../db/meta.js';
-import { makeEmbed } from '../utils/embed.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
 import { CHANNEL_IDS } from '../config/permissions.js';
 import { readChangelogSection } from '../utils/changelog.js';
 import { pushLog } from '../http/logs.js';

@@ -1,10 +1,13 @@
 // src/commands/help.ts
 import type { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:help');
 
 export const data = new SlashCommandBuilder()
   .setName('help')
@@ -277,8 +280,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.reply({ embeds: [embed], ephemeral: !isPublic });
   } catch (e) {
-    console.error(e);
-    await safeError(interaction, 'Impossible d’afficher l’aide pour le moment.');
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /help');
+    await safeError(interaction, "Impossible d'afficher l'aide pour le moment.");
     pushLog({
       ts: new Date().toISOString(),
       level: 'error',

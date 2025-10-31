@@ -1,17 +1,20 @@
 // src/commands/notif.ts
 import type { ChatInputCommandInteraction, Role, TextChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { hhmmToSpec } from '../utils/cron.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { hhmmToSpec } from '../utils/time/cron.js';
+import { createLogger } from '../utils/logger.js';
 import {
   loadNotifs, startNotifTask, stopNotifTask, reloadAllNotifs,
   createNotif, editNotif, removeNotif, type Notif
 } from '../jobs/notifs.js'; // ⬅️ MAJ imports (plus de saveNotifs ici)
-import { sendToChannel } from '../utils/send.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js';
+import { sendToChannel } from '../utils/discord/send.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
+
+const log = createLogger('cmd:notif');
 import { pushLog } from '../http/logs.js';
 
 function newId() {
@@ -228,7 +231,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /notif');
     await safeError(interaction, 'Erreur sur /notif.');
     pushLog({
       ts: new Date().toISOString(),

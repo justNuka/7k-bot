@@ -1,13 +1,37 @@
 /**
  * Chargeur automatique de commandes
- * Scan le dossier src/commands/ et construit une Map de commandes
+ * 
+ * Ce module gère le chargement dynamique de tous les modules de commande depuis `src/commands/`.
+ * Il remplace l'ancien système d'imports manuels (42 imports explicites dans index.ts).
+ * 
+ * Chaque commande doit exporter un objet conforme à l'interface `CommandModule`.
+ * Le loader construit une Map utilisée par le routeur d'interactions.
+ * 
+ * @module core/commandLoader
  */
 
 import type { CommandModule } from '../types/index.js';
 
 /**
  * Charge toutes les commandes depuis src/commands/
- * @returns Map<commandName, commandModule>
+ * 
+ * Importe dynamiquement tous les modules de commande et construit une Map
+ * associant le nom de la commande (depuis `data.name`) au module complet.
+ * 
+ * Note: Les imports sont explicites car l'import dynamique avec glob pattern
+ * n'est pas supporté nativement en ESM. Pour ajouter une commande, il suffit
+ * de créer le fichier dans `src/commands/` et l'ajouter à la liste ci-dessous.
+ * 
+ * @returns Map associant nom de commande → module de commande
+ * 
+ * @example
+ * ```ts
+ * const commands = await loadCommands();
+ * const helpCommand = commands.get('help');
+ * if (helpCommand) {
+ *   await helpCommand.execute(interaction);
+ * }
+ * ```
  */
 export async function loadCommands(): Promise<Map<string, CommandModule>> {
   const commandMap = new Map<string, CommandModule>();

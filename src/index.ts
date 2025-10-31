@@ -6,6 +6,9 @@
 // Dotenv
 import 'dotenv/config';
 
+// Config
+import { validateEnv, logEnvSummary } from './config/env.js';
+
 // Discord
 import { Client, GatewayIntentBits, ActivityType, Partials } from 'discord.js';
 
@@ -29,12 +32,13 @@ import { registerYTWatchJob } from './jobs/ytWatch.js';
 import { loadNotifs, ensurePresetNotifs, reloadAllNotifs } from './jobs/notifs.js';
 
 // Handlers
-import { onGuildMemberAdd } from './handlers/memberWelcome.js';
-import { onCandidatureMessage } from './handlers/candidatureWatcher.js';
+import { onGuildMemberAdd } from './handlers/events/memberWelcome.js';
+import { onCandidatureMessage } from './handlers/events/candidatureWatcher.js';
 
 // Utils
-import { sendToChannel } from './utils/send.js';
+import { sendToChannel } from './utils/discord/send.js';
 import { refreshPanelAll } from './utils/notifPanel.js';
+import { createLogger } from './utils/logger.js';
 
 // HTTP
 import { startHttpServer } from './http/server.js';
@@ -42,6 +46,9 @@ import { bindDiscordClient } from './http/context.js';
 
 // Startup
 import { announceVersionIfNeeded } from './startup/versionAnnounce.js';
+
+// Logger
+const log = createLogger('BOT');
 
 // ------------------------------------------------------------------------ //
 
@@ -52,9 +59,13 @@ dayjs.extend(timezone);
  * Initialise et démarre le bot Discord
  */
 async function main() {
+  // Valider la configuration
+  const env = validateEnv();
+  logEnvSummary(env);
+
   // Charger les commandes
   const commandMap = await loadCommands();
-  console.log(`[BOT] ${commandMap.size} commandes chargées.`);
+  log.info({ count: commandMap.size }, 'Commandes chargées');
 
   // Créer le client Discord
   const client = new Client({
@@ -70,7 +81,7 @@ async function main() {
 
   // Event: Bot prêt
   client.once('clientReady', async () => {
-    console.log(`Connecté comme ${client.user?.tag}`);
+    log.info({ tag: client.user?.tag, id: client.user?.id }, 'Bot connecté');
 
     // Migrations DB
     runMigrations();
@@ -110,9 +121,9 @@ async function main() {
       await ensurePresetNotifs(client, client.user?.id || 'system');
       const notifs = await loadNotifs();
       reloadAllNotifs(client, notifs);
-      console.log(`[NOTIF] ${notifs.length} notification(s) planifiée(s).`);
+      log.info({ count: notifs.length }, 'Notifications planifiées');
     } catch (e) {
-      console.error('[NOTIF] init failed:', e);
+      log.error({ err: e }, 'Échec initialisation notifications');
     }
   });
 
@@ -126,7 +137,7 @@ async function main() {
         await refreshPanelAll(interaction.client);
       }
     } catch (e) {
-      console.error('[BOT] Interaction error:', e);
+      log.error({ err: e }, 'Erreur traitement interaction');
     }
   });
 
@@ -142,6 +153,6 @@ async function main() {
 
 // Démarrage
 main().catch((err) => {
-  console.error('[BOT] Fatal error:', err);
+  log.fatal({ err }, 'Erreur fatale au démarrage');
   process.exit(1);
 });

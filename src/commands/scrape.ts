@@ -1,12 +1,15 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
+import { requireAccess } from '../utils/discord/access.js';
 import { fetchCategoryList, fetchArticleDetail, NmCategoryKey } from '../scrapers/netmarble.js';
-import { safeError } from '../utils/reply.js';
-import { makeEmbed } from '../utils/embed.js';
+import { safeError } from '../utils/discord/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:scrape');
 
 export const data = new SlashCommandBuilder()
   .setName('scrape')
@@ -91,7 +94,7 @@ export async function execute(interaction: any) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /scrape');
     await safeError(interaction, 'Erreur sur /scrape.');
     pushLog({
       ts: new Date().toISOString(),

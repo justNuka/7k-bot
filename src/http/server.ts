@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import { registerLogRoutes, pushLog } from './logs.js';
 import { db } from '../db/db.js';
 import { log } from '../utils/logger.js';
-import { avatarUrlFrom, fetchMembersSafe } from '../utils/discordMembers.js';
+import { avatarUrlFrom, fetchMembersSafe } from '../utils/discord/members.js';
 import { Client } from 'discord.js';
 import { discordClient } from './context.js';
 import { listAllAbsences, listActiveAbsences } from '../db/absences.js';
@@ -84,9 +84,78 @@ export async function startHttpServer(client: Client) {
     }
   });
 
-  app.get('/health', async () => {
-    pushLog({ ts: new Date().toISOString(), level: 'info', component: 'http', msg: '[HEALTH] Check OK' });
-    return { ok: true, ts: Date.now() };
+  /**
+   * Health check endpoint amélioré
+   * Vérifie l'état du bot, de la DB et de Discord
+   */
+  app.get('/health', async (_req, res) => {
+    const startTime = Date.now();
+    const checks: Record<string, any> = {};
+
+    // Check 1: Database
+    try {
+      const result = db.prepare('SELECT 1 as test').get();
+      checks.database = { status: 'ok', responsive: true };
+    } catch (err) {
+      checks.database = { status: 'error', error: (err as Error).message };
+    }
+
+    // Check 2: Discord Client
+    try {
+      if (!discordClient) {
+        checks.discord = { status: 'error', error: 'client not initialized' };
+      } else if (!discordClient.isReady()) {
+        checks.discord = { status: 'error', error: 'client not ready' };
+      } else {
+        checks.discord = {
+          status: 'ok',
+          user: discordClient.user?.tag,
+          uptime: Math.floor((discordClient.uptime || 0) / 1000),
+          guilds: discordClient.guilds.cache.size,
+          ping: discordClient.ws.ping,
+        };
+      }
+    } catch (err) {
+      checks.discord = { status: 'error', error: (err as Error).message };
+    }
+
+    // Check 3: Memory
+    const mem = process.memoryUsage();
+    checks.memory = {
+      status: 'ok',
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024), // MB
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024), // MB
+      rss: Math.round(mem.rss / 1024 / 1024), // MB
+    };
+
+    // Check 4: Uptime
+    checks.process = {
+      status: 'ok',
+      uptime: Math.floor(process.uptime()),
+      nodeVersion: process.version,
+      platform: process.platform,
+    };
+
+    // Résultat global
+    const allOk = checks.database.status === 'ok' && checks.discord.status === 'ok';
+    const responseTime = Date.now() - startTime;
+
+    const response = {
+      ok: allOk,
+      timestamp: new Date().toISOString(),
+      responseTime,
+      checks,
+    };
+
+    pushLog({
+      ts: new Date().toISOString(),
+      level: allOk ? 'info' : 'warn',
+      component: 'http',
+      msg: `[HEALTH] ${allOk ? 'OK' : 'DEGRADED'}`,
+      meta: { responseTime, allOk }
+    });
+
+    return res.code(allOk ? 200 : 503).send(response);
   });
 
   // --- absences (sqlite) ---

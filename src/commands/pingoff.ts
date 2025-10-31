@@ -1,9 +1,12 @@
 import type { ChatInputCommandInteraction, TextChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:pingoff');
 
 export const data = new SlashCommandBuilder()
   .setName('pingoff')
@@ -125,7 +128,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.editReply('✅ Ton message a été envoyé aux officiers.');
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /pingoff');
     await safeError(interaction, 'Erreur sur /pingoff.');
   }
 }

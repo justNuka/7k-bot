@@ -1,25 +1,57 @@
 /**
  * Routeur centralisé pour les boutons Discord
- * Dispatch les interactions de boutons selon leur customId
+ * 
+ * Ce module gère le dispatch des interactions de boutons vers leurs handlers respectifs.
+ * Le routing se fait par préfixe du `customId` du bouton (ex: `notif:toggle:cr`).
+ * 
+ * Convention de nommage des boutons :
+ * - `notif:` → Notifications (toggle notif roles)
+ * - `cand:` → Candidatures (accepter/refuser)
+ * - `cr:` → CR (compteurs, oublis)
+ * 
+ * Pour ajouter un nouveau type de bouton :
+ * 1. Créer le handler dans `src/handlers/buttons/`
+ * 2. Ajouter le préfixe et le handler dans `buttonHandlers`
+ * 
+ * @module core/buttonRouter
  */
 
 import type { ButtonInteraction } from 'discord.js';
-import { handleNotifButton } from '../handlers/notifButtons.js';
+import { handleNotifButton } from '../handlers/buttons/notifButtons.js';
 import { handleCandidaturesButton } from '../commands/candidatures.js';
-import { handleCrButtons } from '../handlers/crButtons.js';
+import { handleCrButtons } from '../handlers/buttons/crButtons.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('ButtonRouter');
 
 /**
  * Map des handlers de boutons par préfixe de customId
+ * 
+ * Chaque entrée associe un préfixe à sa fonction de gestion.
+ * Le premier préfixe correspondant est utilisé.
  */
 const buttonHandlers: Record<string, (interaction: ButtonInteraction) => Promise<any>> = {
-  'notif:': handleNotifButton,
-  'cand:': handleCandidaturesButton,
-  'cr:': handleCrButtons,
+  'notif:': handleNotifButton,   // Boutons de toggle notification
+  'cand:': handleCandidaturesButton,  // Boutons accepter/refuser candidature
+  'cr:': handleCrButtons,         // Boutons CR (compteurs, oublis)
 };
 
 /**
  * Route une interaction de bouton vers le handler approprié
+ * 
+ * Parcourt la liste des préfixes enregistrés et délègue au premier handler correspondant.
+ * Si aucun handler n'est trouvé, répond avec un message d'erreur.
+ * 
  * @param interaction L'interaction de bouton Discord
+ * 
+ * @example
+ * ```ts
+ * // Bouton avec customId "notif:toggle:cr"
+ * // → Routé vers handleNotifButton (préfixe "notif:")
+ * 
+ * // Bouton avec customId "cand:accept:C-042"
+ * // → Routé vers handleCandidaturesButton (préfixe "cand:")
+ * ```
  */
 export async function routeButton(interaction: ButtonInteraction): Promise<void> {
   const customId = interaction.customId;
@@ -33,7 +65,7 @@ export async function routeButton(interaction: ButtonInteraction): Promise<void>
   }
 
   // Aucun handler trouvé
-  console.warn(`[ButtonRouter] Aucun handler pour le bouton: ${customId}`);
+  log.warn({ customId }, 'Aucun handler pour ce bouton');
   if (interaction.isRepliable()) {
     await interaction.reply({
       content: '❌ Ce bouton n\'est plus supporté.',

@@ -1,16 +1,19 @@
 // src/commands/ytroute.ts
 import type { ChatInputCommandInteraction, AnyThreadChannel, ForumChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { createLogger } from '../utils/logger.js';
 import {
   listRoutes, insertThreadRoute, insertForumRoute,
   deleteRoute, type YTRouteRow
 } from '../db/ytRoutes.js';
-import { officerDeferPublic, officerEdit } from '../utils/officerReply.js';
+import { officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { pushLog } from '../http/logs.js';
+
+const log = createLogger('cmd:ytroute');
 
 export const data = new SlashCommandBuilder()
   .setName('ytroute')
@@ -155,7 +158,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /ytroute');
     await safeError(interaction, 'Erreur sur /ytroute.');
     pushLog({
       ts: new Date().toISOString(),

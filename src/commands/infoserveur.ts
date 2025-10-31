@@ -1,9 +1,12 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:infoserveur');
 
 const CH = {
   READ_FIRST: CHANNEL_IDS.LIRE_PREMIER!,
@@ -53,7 +56,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.editReply({ embeds: [emb] });
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /infoserveur');
     await safeError(interaction, 'Erreur sur /infoserveur.');
     pushLog({
       ts: new Date().toISOString(),

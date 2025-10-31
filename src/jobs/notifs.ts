@@ -1,12 +1,15 @@
 // src/jobs/notifs.ts
 import cron, { ScheduledTask } from 'node-cron';
 import type { Client } from 'discord.js';
-import { sendToChannel } from '../utils/send.js';
-import { hhmmToSpec } from '../utils/cron.js';
+import { sendToChannel } from '../utils/discord/send.js';
+import { hhmmToSpec } from '../utils/time/cron.js';
 import { ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
 import {
   listNotifs, getNotif, insertNotif, updateNotif, deleteNotif, upsertPresetNotif, type NotifRow
 } from '../db/notifs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('Notifs');
 
 export type Notif = {
   id: string;
@@ -106,7 +109,7 @@ export function startNotifTask(client: Client, n: Notif) {
       const content = n.message.replace(/<@&ROLE>/g, `<@&${n.roleId}>`);
       await sendToChannel(client, n.channelId, content);
     } catch (e) {
-      console.error('[NOTIF] send fail:', n.id, e);
+      log.error({ notifId: n.id, error: e }, 'Échec envoi notification');
     }
   }, { timezone: n.tz });
   tasks.set(n.id, task);

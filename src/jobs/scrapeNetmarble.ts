@@ -1,9 +1,12 @@
 import cron from 'node-cron';
 import { fetchCategoryList, fetchArticleDetail, NmCategoryKey } from '../scrapers/netmarble.js';
 import { readJson, writeJson } from '../utils/storage.js';
-import { sendToChannel } from '../utils/send.js';
-import { makeEmbed } from '../utils/embed.js';
+import { sendToChannel } from '../utils/discord/send.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
 import { CHANNEL_IDS } from '../config/permissions.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('ScrapeNetmarble');
 
 type SeenStore = Record<NmCategoryKey, string[]>; // ids déjà vus
 const STORE = 'src/data/scraped_seen.json';
@@ -24,7 +27,7 @@ function catLabel(cat: NmCategoryKey) {
 
 export async function scrapeOnceAndNotify(client: any) {
   const channelId = CHANNEL_IDS.INFOS_ANNONCES_JEU || CHANNEL_IDS.RETOURS_BOT; // fallback si pas de canal dédié
-  if (!channelId) { console.warn('[SCRAPE] No channel configured.'); return; }
+  if (!channelId) { log.warn('Pas de canal configuré pour le scraping'); return; }
 
   const seen = await getSeen();
   const newPosts: { cat: NmCategoryKey; id: string; title: string; url: string; date?: string }[] = [];
@@ -42,13 +45,13 @@ export async function scrapeOnceAndNotify(client: any) {
       }
       seen[cat] = Array.from(known).slice(-200); // garde historique raisonnable
     } catch (e) {
-      console.error('[SCRAPE] list error', cat, e);
+      log.error({ category: cat, error: e }, 'Erreur scraping liste');
     }
   }
 
   // rien de neuf → on sort
   if (newPosts.length === 0) {
-    console.log('[SCRAPE] No new posts.');
+    log.info('Aucun nouveau post Netmarble');
     await setSeen(seen);
     return;
   }
@@ -65,12 +68,12 @@ export async function scrapeOnceAndNotify(client: any) {
       });
       await sendToChannel(client, channelId, { embeds: [emb] });
     } catch (e) {
-      console.error('[SCRAPE] post error', p.url, e);
+      log.error({ url: p.url, error: e }, 'Erreur post scraping');
     }
   }
 
   await setSeen(seen);
-  console.log(`[SCRAPE] Posted ${newPosts.length} new item(s).`);
+  log.info({ count: newPosts.length }, 'Posts Netmarble publiés');
 }
 
 /** Planifie le scraping récurrent (par défaut: toutes les 6h) */

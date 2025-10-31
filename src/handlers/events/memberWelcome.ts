@@ -1,4 +1,16 @@
-// src/handlers/memberWelcome.ts
+/**
+ * Handler pour l'événement guildMemberAdd (nouveaux membres)
+ * 
+ * Gère l'accueil des nouveaux membres sur le serveur Discord :
+ * 1. Attribution automatique du rôle "Visiteurs"
+ * 2. Envoi d'un message de bienvenue avec embed stylisé
+ * 3. Boutons d'action : Candidater, Voir les règles
+ * 
+ * Le message de bienvenue est envoyé dans le canal configuré (CHANNEL_IDS.WELCOME).
+ * 
+ * @module handlers/events/memberWelcome
+ */
+
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -9,22 +21,45 @@ import {
   PermissionFlagsBits,
   TextChannel,
 } from 'discord.js';
-import { ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
+import { ROLE_IDS, CHANNEL_IDS } from '../../config/permissions.js';
+import { createLogger } from '../../utils/logger.js';
+
+const log = createLogger('MemberWelcome');
 
 // ====== THEME / BRAND ======
+/**
+ * Thème visuel pour les messages de bienvenue
+ */
 const BRAND = {
   primary: 0x5865F2,           // Discord Blurple
   accent:  0xF59E0B,           // Amber
-  logo:    'https://your.cdn/logo_7k.png',              // 🔁 remplace par ton logo
-  banner:  'https://your.cdn/welcome_banner.jpg',       // 🔁 grande image header
+  logo:    'https://your.cdn/logo_7k.png',              // Logo de la guilde
+  banner:  'https://your.cdn/welcome_banner.jpg',       // Bannière d'accueil
 };
 
-function channelDeepLink(guildId: string, channelId?: string) {
+/**
+ * Génère un lien Discord vers un canal spécifique
+ * 
+ * @param guildId ID du serveur Discord
+ * @param channelId ID du canal (optionnel)
+ * @returns URL du canal ou undefined
+ */
+function channelDeepLink(guildId: string, channelId?: string): string | undefined {
   return channelId ? `https://discord.com/channels/${guildId}/${channelId}` : undefined;
 }
 
+/**
+ * Gère l'arrivée d'un nouveau membre sur le serveur
+ * 
+ * Workflow :
+ * 1. Assigne automatiquement le rôle "Visiteurs"
+ * 2. Crée et envoie un embed de bienvenue personnalisé
+ * 3. Ajoute des boutons d'action (candidater, règles)
+ * 
+ * @param member Le membre qui vient de rejoindre
+ */
 export async function onGuildMemberAdd(member: GuildMember) {
-  console.log(`[welcome] join: ${member.user.tag} (${member.id})`);
+  log.info({ tag: member.user.tag, id: member.id }, 'Nouveau membre');
 
   // --- 1) Auto-assign "Visiteurs"
   try {
@@ -40,11 +75,11 @@ export async function onGuildMemberAdd(member: GuildMember) {
       if (role && canManage) {
         await member.roles.add(role, 'Auto-assign: Visiteurs');
       } else if (!canManage) {
-        console.warn('[welcome] Bot cannot manage VISITEURS (perm/position).');
+        log.warn('Bot ne peut pas gérer le rôle VISITEURS (permission/position)');
       }
     }
   } catch (e) {
-    console.error('[welcome] add role error:', e);
+    log.error({ err: e }, 'Erreur lors de l\'ajout du rôle');
   }
 
   // --- 2) Build welcome embed (DM)
@@ -110,10 +145,10 @@ export async function onGuildMemberAdd(member: GuildMember) {
   let dmOk = true;
   try {
     await member.send({ embeds: [welcome], components: [row] });
-    console.log('[welcome] DM embed sent');
+    log.info('Message de bienvenue envoyé en DM');
   } catch (e) {
     dmOk = false;
-    console.log('[welcome] DM failed (closed DMs?):', (e as Error).message);
+    log.warn({ error: (e as Error).message }, 'DM échoué (DMs fermés?)');
   }
 
   // --- 4) Fallback dans #welcome si DM fermé
@@ -139,9 +174,9 @@ export async function onGuildMemberAdd(member: GuildMember) {
         content: `Bienvenue ${member}!`,
         embeds: [fallback],
       });
-      console.log('[welcome] Fallback posted in #welcome');
+      log.info('Message fallback posté dans #welcome');
     } else {
-      console.warn('[welcome] WELCOME channel invalid/unavailable.');
+      log.warn('Canal WELCOME invalide ou indisponible');
     }
   }
 }

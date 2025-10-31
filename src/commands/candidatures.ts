@@ -1,13 +1,16 @@
 import type { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, Colors, EmbedBuilder } from 'discord.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js';
-import { sendToChannel } from '../utils/send.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
+import { sendToChannel } from '../utils/discord/send.js';
 import { CHANNEL_IDS } from '../config/permissions.js';
-import { discordAbsolute } from '../utils/time.js';
+import { discordAbsolute } from '../utils/time/time.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:candidatures');
 import { pushLog } from '../http/logs.js';
 
 // DB
@@ -129,7 +132,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     });
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /candidatures');
     pushLog({
       ts: new Date().toISOString(),
       level: 'error',
@@ -321,7 +324,7 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
     }
 
   } catch (e) {
-    console.error('[candidatures button] error:', e);
+    log.error({ error: e, userId: interaction.user.id, customId: interaction.customId }, 'Erreur bouton candidatures');
     if (!interaction.deferred && !interaction.replied) {
       pushLog({
         ts: new Date().toISOString(),

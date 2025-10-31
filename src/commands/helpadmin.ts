@@ -1,11 +1,14 @@
 import type { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { ROLE_IDS, CHANNEL_IDS } from '../config/permissions.js';
 import os from 'node:os';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:helpadmin');
 
 function isOfficer(member: GuildMember | null | undefined) {
   return !!(member && ROLE_IDS.OFFICIERS && member.roles.cache.has(ROLE_IDS.OFFICIERS));
@@ -45,10 +48,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     // Fichiers de data
     const base = process.cwd();
-    const countersPath = path.resolve(base, 'src/data/crCounters.json');
-    const weekPath     = path.resolve(base, 'src/data/crWeek.json');
-    const countersInfo = await statIfExists(countersPath);
-    const weekInfo     = await statIfExists(weekPath);
+    const dbPath = process.env.SQLITE_PATH || path.resolve(base, 'src/data/bot.db');
+    const dbInfo = await statIfExists(dbPath);
 
     const fields = [
       {
@@ -87,8 +88,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       {
         name: '💾 Données',
         value: [
-          `• crCounters.json : ${countersInfo}`,
-          `• crWeek.json : ${weekInfo}`,
+          `• SQLite DB : ${dbInfo}`,
+          `• Path : \`${dbPath}\``,
         ].join('\n'),
         inline: false,
       },
@@ -108,8 +109,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     await interaction.editReply({ embeds: [embed] });
   } catch (e) {
-    console.error(e);
-    await safeError(interaction, 'Impossible d’afficher la configuration.');
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /helpadmin');
+    await safeError(interaction, 'Impossible d\'afficher la configuration.');
   }
 }
 

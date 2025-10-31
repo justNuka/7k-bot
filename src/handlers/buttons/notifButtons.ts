@@ -1,14 +1,42 @@
-// src/handlers/notifButtons.ts
-import type { ButtonInteraction, GuildMember, PermissionResolvable } from 'discord.js';
-import { ROLE_IDS } from '../config/permissions.js';
-import { refreshPanelAll } from '../utils/notifPanel.js';
+/**
+ * Handler pour les boutons de notification
+ * 
+ * Gère les boutons permettant aux utilisateurs de toggle leurs rôles de notification
+ * pour différents types d'événements (CR, Daily, GVG).
+ * 
+ * Format du customId : `notif:toggle:<type>`
+ * Où <type> peut être : `cr`, `daily`, `gvg`
+ * 
+ * @module handlers/buttons/notifButtons
+ */
 
-function roleFromKey(key: 'cr'|'daily'|'gvg') {
+import type { ButtonInteraction, GuildMember, PermissionResolvable } from 'discord.js';
+import { ROLE_IDS } from '../../config/permissions.js';
+import { refreshPanelAll } from '../../utils/notifPanel.js';
+import { createLogger } from '../../utils/logger.js';
+
+const log = createLogger('NotifButtons');
+
+/**
+ * Résout l'ID de rôle correspondant à un type de notification
+ * 
+ * @param key Type de notification (cr, daily, gvg)
+ * @returns ID du rôle Discord correspondant
+ */
+function roleFromKey(key: 'cr'|'daily'|'gvg'): string {
   return key === 'cr' ? ROLE_IDS.NOTIF_CR
     : key === 'daily' ? ROLE_IDS.NOTIF_DAILY
     : ROLE_IDS.NOTIF_GVG;
 }
 
+/**
+ * Gère les interactions de boutons de notification
+ * 
+ * Ajoute ou retire le rôle de notification correspondant à l'utilisateur.
+ * Rafraîchit automatiquement le panel de notifications après modification.
+ * 
+ * @param i Interaction de bouton Discord
+ */
 export async function handleNotifButton(i: ButtonInteraction) {
   try {
     if (!i.inGuild()) {
@@ -46,8 +74,8 @@ export async function handleNotifButton(i: ButtonInteraction) {
     await refreshPanelAll(i.client);
 
   } catch (e) {
-    console.error('[notif button] role toggle fail', e);
-    // Si on n’a pas encore répondu, on reply ; sinon on edit.
+    log.error({ userId: i.user.id, error: e }, 'Échec toggle rôle notification');
+    // Si on n'a pas encore répondu, on reply ; sinon on edit.
     if (i.deferred || i.replied) {
       await i.editReply({ content: '❌ Impossible de modifier ton rôle (permissions ?).' });
     } else {

@@ -1,11 +1,8 @@
-// src/handlers/candidatureWatcher.ts
+// src/handlers/events/candidatureWatcher.ts
 import { Colors, EmbedBuilder, Message } from 'discord.js';
-import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
-import { sendToChannel } from '../utils/discord/send.js';
-import { insertCandidature, hasOpenForUser } from '../db/candidatures.js';
-import { createLogger } from '../utils/logger.js';
-
-const log = createLogger('CandidatureWatcher');
+import { CHANNEL_IDS, ROLE_IDS } from '../../config/permissions.js';
+import { sendToChannel } from '../../utils/discord/send.js';
+import { insertCandidature, hasOpenForUser } from '../../db/candidatures.js';
 
 const COOLDOWN_MS = 60_000;
 const lastPostByUser = new Map<string, number>(); // userId -> lastTimestamp
@@ -100,6 +97,6 @@ export async function onCandidatureMessage(msg: Message) {
     await sendToChannel(msg.client, CHANNEL_IDS.RETOURS_BOT, { content, embeds: [emb] });
 
   } catch (e) {
-    log.error({ error: e }, 'Erreur watcher candidature');
+    console.error('[candidatureWatcher] error:', e);
   }
 }

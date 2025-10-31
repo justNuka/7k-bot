@@ -1,11 +1,14 @@
 import type { ChatInputCommandInteraction, TextChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
-import { requireAccess } from '../utils/access.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
+import { requireAccess } from '../utils/discord/access.js';
 import { COMMAND_RULES, CHANNEL_IDS } from '../config/permissions.js';
 import { readChangelogSection } from '../utils/changelog.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:changelog');
 
 export const data = new SlashCommandBuilder()
   .setName('changelog')
@@ -76,7 +79,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       return;
     }
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /changelog');
     await safeError(interaction, 'Erreur sur /changelog.');
   }
 }

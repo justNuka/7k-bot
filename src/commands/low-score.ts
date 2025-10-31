@@ -1,18 +1,21 @@
 // src/commands/lowScore.ts
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
-import { CR_DAYS, dayLabel } from '../utils/cr.js';
-import { getWeekStartIso } from '../utils/week.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
+import { CR_DAYS, dayLabel } from '../utils/cr/cr.js';
+import { getWeekStartIso } from '../utils/time/week.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { discordAbsolute } from '../utils/time.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { discordAbsolute } from '../utils/time/time.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:low-score');
 import { addLowScore } from '../db/crWrites.js';
 import { db } from '../db/db.js';
 
 // Helpers (déjà existants chez toi)
-import { crDefer, crEdit } from '../utils/crReply.js';
+import { crDefer, crEdit } from '../utils/cr/crReply.js';
 import { pushLog } from '../http/logs.js';
 
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -141,7 +144,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /low-score');
     await safeError(interaction, 'Erreur sur /low-score.');
     pushLog({
       ts: new Date().toISOString(),

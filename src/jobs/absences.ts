@@ -6,6 +6,9 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
 import { db } from '../db/db.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('Absences');
 
 const TZ = process.env.RESET_CRON_TZ || 'Europe/Paris';
 
@@ -23,7 +26,7 @@ export async function cleanupOnce() {
 
   const purged = before.c - after.c;
   if (purged > 0) {
-    console.log(`[ABS] Nettoyage: ${purged} absence(s) purgée(s).`);
+    log.info({ count: purged }, 'Absences purgées');
   }
 }
 
@@ -31,7 +34,7 @@ export function startAbsenceCleanup() {
   if (task) task.stop();
   // Tous les jours à 03:10 (Paris)
   task = cron.schedule('10 3 * * *', () => {
-    cleanupOnce().catch((e) => console.error('[ABS] cleanupOnce failed:', e));
+    cleanupOnce().catch((e) => log.error({ error: e }, 'Échec cleanupOnce'));
   }, { timezone: TZ });
-  console.log('[ABS] Cron purge démarré (03:10).');
+  log.info({ tz: TZ }, 'Cron purge absences démarré (03:10)');
 }

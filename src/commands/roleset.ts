@@ -1,11 +1,14 @@
 import type { ChatInputCommandInteraction, Role, GuildMember } from 'discord.js';
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js'; // 🆕 helper mirroring
+import { requireAccess } from '../utils/discord/access.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js'; // 🆕 helper mirroring
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:roleset');
 
 function botCanManage(i: ChatInputCommandInteraction, role: Role) {
   const me = i.guild!.members.me;
@@ -186,7 +189,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /roleset');
     await safeError(interaction, 'Erreur sur /roleset.');
     pushLog({
       ts: new Date().toISOString(),

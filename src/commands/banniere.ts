@@ -6,16 +6,19 @@ import tz from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { CHANNEL_IDS, COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { discordAbsolute } from '../utils/time.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { discordAbsolute } from '../utils/time/time.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
 import { MIRROR_PING_ALLOWLIST, MIRROR_PING_BLOCKLIST, cmdKey } from '../config/mirror.js';
-import { sendToChannel } from '../utils/send.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:banniere');
+import { sendToChannel } from '../utils/discord/send.js';
 import { pushLog } from '../http/logs.js';
-import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/dateParser.js';
+import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/time/dateParser.js';
 
 // ⬇️ DB
 import {
@@ -342,7 +345,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         await sendToChannel(interaction.client, CHANNEL_IDS.RETOURS_BOT, { content: header, embeds: [embed] });
       }
     } catch (mirrorError) {
-      console.error('[MIRROR_BANNIERE] erreur mirror', mirrorError);
+      log.error({ error: mirrorError, userId: interaction.user.id }, 'Erreur mirroring bannière');
       pushLog({
         ts: new Date().toISOString(),
         level: 'error',
@@ -353,7 +356,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /banniere');
     await safeError(interaction, 'Erreur sur /banniere.');
     pushLog({
       ts: new Date().toISOString(),

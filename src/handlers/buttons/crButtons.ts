@@ -1,7 +1,7 @@
 // src/handlers/crButtons.ts
 import type { ButtonInteraction } from 'discord.js';
-import { db } from '../db/db.js';
-import { pushLog } from '../http/logs.js';
+import { db } from '../../db/db.js';
+import { pushLog } from '../../http/logs.js';
 
 export async function handleCrButtons(i: ButtonInteraction) {
   // On ne traite que nos IDs

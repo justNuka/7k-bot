@@ -1,13 +1,16 @@
 // src/commands/yt.ts
 import type { ChatInputCommandInteraction, AnyThreadChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { officerDeferPublic, officerEdit } from '../utils/officerReply.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { pushLog } from '../http/logs.js';
 import { fetchYTFeed } from '../utils/youtube.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:yt');
 import {
   listSubs, getSubByChannel, insertSub, deleteSubByChannel, updateSubThread
 } from '../db/yt.js';
@@ -172,7 +175,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
         return officerEdit(interaction, '✅ Test envoyé.');
       } catch (e) {
-        console.error('[YT test] fail', e);
+        log.error({ error: e, channelId, userId: interaction.user.id }, 'Échec test YouTube');
         pushLog({ ts: new Date().toISOString(), level: 'error', component: 'yt',
           msg: `[YT] Test failed for channel: ${channelId} (by ${interaction.user.id})`,
           meta: { channelId, userId: interaction.user.id, error: (e as Error).message } });
@@ -181,7 +184,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /yt');
     await safeError(interaction, 'Erreur sur /yt.');
     pushLog({ ts: new Date().toISOString(), level: 'error', component: 'yt',
       msg: `[YT] /yt command error (by ${interaction.user.id})`,

@@ -1,11 +1,14 @@
 import cron from 'node-cron';
 import type { Client } from 'discord.js';
 import { db } from '../db/db.js';
-import { currentWeekStart } from '../utils/week.js';
-import { makeEmbed } from '../utils/embed.js';
-import { dayLabel } from '../utils/cr.js';
-import { sendToChannel } from '../utils/send.js';
-import { discordAbsolute } from '../utils/time.js';
+import { currentWeekStart } from '../utils/time/week.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { dayLabel } from '../utils/cr/cr.js';
+import { sendToChannel } from '../utils/discord/send.js';
+import { discordAbsolute } from '../utils/time/time.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('CRWeeklyReset');
 
 type DayKey = 'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun';
 const DAYS: DayKey[] = ['mon','tue','wed','thu','fri','sat','sun'];
@@ -101,9 +104,9 @@ export function registerWeeklyResetJob(client: Client) {
       db.prepare('DELETE FROM cr_week  WHERE week_start = ?').run(weekStartNow);
       db.prepare('DELETE FROM low_week WHERE week_start = ?').run(weekStartNow);
 
-      console.log('[CR] Weekly recap (DB) posted & current week cleared.');
+      log.info({ weekStart: prevWeekStart }, 'Récap hebdo CR posté et semaine courante nettoyée');
     } catch (e) {
-      console.error('[CR] Weekly reset job failed (DB):', e);
+      log.error({ error: e }, 'Échec job reset hebdomadaire CR');
     }
   }, { timezone: tz });
 }

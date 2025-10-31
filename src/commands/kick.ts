@@ -1,12 +1,15 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { SlashCommandBuilder, EmbedBuilder, Colors } from 'discord.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
-import { requireAccess, botCanManageRole } from '../utils/access.js';
-import { officerDeferPublic, officerEdit } from '../utils/officerReply.js';
+import { requireAccess, botCanManageRole } from '../utils/discord/access.js';
+import { officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { KICK_TEMPLATES } from '../config/kickTemplates.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:kick');
 
 export const data = new SlashCommandBuilder()
   .setName('kick')
@@ -133,7 +136,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
           });
         }
       } catch (e) {
-        console.error('[KICK] role swap error', e);
+        log.error({ error: e, moderatorId: interaction.user.id, targetId: user.id }, 'Erreur roleswap kick');
         roleChangeNote = '⚠️ Erreur pendant le changement de rôles.';
         pushLog({
           ts: new Date().toISOString(),
@@ -169,7 +172,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /kick');
     await safeError(interaction, 'Erreur sur /kick send.');
     pushLog({
       ts: new Date().toISOString(),

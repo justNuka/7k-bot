@@ -3,13 +3,16 @@ import cron from 'node-cron';
 import type { Client } from 'discord.js';
 import { fetchYTFeed, type YTItem } from '../utils/youtube.js';
 import { resolveRouteForTitle, listSubs, updateSubLastVideo } from '../db/yt.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('YTWatch');
 
 const TZ = process.env.RESET_CRON_TZ || 'Europe/Paris';
 
 export function registerYTWatchJob(client: Client) {
   const spec = '*/5 * * * *';
   cron.schedule(spec, () => runOnce(client), { timezone: TZ });
-  console.log(`[YT] watcher planifié (cron: ${spec}, tz: ${TZ}).`);
+  log.info({ spec, tz: TZ }, 'YouTube watcher planifié');
 }
 
 export async function runOnce(client: Client) {
@@ -31,7 +34,7 @@ export async function runOnce(client: Client) {
         updateSubLastVideo(s.channel_id, it.videoId);
       }
     } catch (e) {
-      console.error('[YT] fetch/post error for', s.channel_id, e);
+      log.error({ channelId: s.channel_id, error: e }, 'YouTube fetch/post error');
     }
   }
 }

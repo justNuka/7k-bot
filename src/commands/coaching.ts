@@ -1,13 +1,16 @@
 // src/commands/coaching.ts
 import type { ChatInputCommandInteraction, TextChannel } from 'discord.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES, CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { sendToChannel } from '../utils/send.js';
-import { officerDefer, officerDeferPublic, officerEdit } from '../utils/officerReply.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { sendToChannel } from '../utils/discord/send.js';
+import { officerDefer, officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { pushLog } from '../http/logs.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:coaching');
 
 import {
   newCoachingId, createRequest, listOpenRequests, acceptRequest,
@@ -205,7 +208,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /coaching');
     await safeError(interaction, 'Erreur sur /coaching.');
     pushLog({
       ts: new Date().toISOString(),

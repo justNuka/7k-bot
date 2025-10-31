@@ -7,18 +7,21 @@ import {
   GuildMember,
 } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
-import { CR_DAYS, dayLabel } from '../utils/cr.js';
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
-import { getWeekStartIso } from '../utils/week.js';
+import { CR_DAYS, dayLabel } from '../utils/cr/cr.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:oubli-cr');
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
+import { getWeekStartIso } from '../utils/time/week.js';
 import { COMMAND_RULES } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { discordAbsolute } from '../utils/time.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { discordAbsolute } from '../utils/time/time.js';
 import { addCrMiss } from '../db/crWrites.js';
 import { db } from '../db/db.js';
 
 // Helpers existants chez toi
-import { crDefer, crEdit } from '../utils/crReply.js';
+import { crDefer, crEdit } from '../utils/cr/crReply.js';
 import { pushLog } from '../http/logs.js';
 
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -313,7 +316,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       );
     }
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /oubli-cr');
     await safeError(interaction, 'Erreur sur /oubli-cr.');
     pushLog({
       ts: new Date().toISOString(),

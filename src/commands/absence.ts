@@ -5,14 +5,17 @@ import tz from 'dayjs/plugin/timezone.js';
 import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc); dayjs.extend(tz);
 
-import { makeEmbed } from '../utils/embed.js';
-import { safeError } from '../utils/reply.js';
+import { makeEmbed } from '../utils/formatting/embed.js';
+import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
-import { requireAccess } from '../utils/access.js';
-import { officerDefer, officerEdit } from '../utils/officerReply.js';
-import { daysLeftInclusive, discordAbsolute, discordRelative } from '../utils/time.js';
+import { requireAccess } from '../utils/discord/access.js';
+import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
+import { daysLeftInclusive, discordAbsolute, discordRelative } from '../utils/time/time.js';
 import { pushLog } from '../http/logs.js';
-import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/dateParser.js';
+import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/time/dateParser.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('cmd:absence');
 
 // DB
 import { insertAbsence, listActiveAbsences } from '../db/absences.js';
@@ -138,7 +141,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     }
 
   } catch (e) {
-    console.error(e);
+    log.error({ error: e, userId: interaction.user.id }, 'Erreur commande /absence');
     await safeError(interaction, 'Erreur sur /absence.');
     pushLog({
       ts: new Date().toISOString(),
