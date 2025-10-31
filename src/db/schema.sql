@@ -159,3 +159,24 @@ CREATE TABLE IF NOT EXISTS yt_routes (
   post_title TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+
+-- Demandes d'aide / coaching
+CREATE TABLE IF NOT EXISTS coaching_requests (
+  id                TEXT PRIMARY KEY,            -- ex: crq_20251030_142233_abcd
+  user_id           TEXT NOT NULL,               -- demandeur
+  origin_channel_id TEXT NOT NULL,               -- où la demande a été faite
+  type              TEXT NOT NULL,               -- 'help' | 'coaching'
+  message           TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'open',-- 'open' | 'accepted' | 'closed'
+  created_at        TEXT NOT NULL,               -- ISO
+
+  accepted_by       TEXT,                        -- officier
+  accepted_at       TEXT,                        -- ISO
+
+  closed_by         TEXT,                        -- officier
+  closed_at         TEXT,                        -- ISO
+  close_note        TEXT                         -- note optionnelle
+);
+
+CREATE INDEX IF NOT EXISTS idx_coaching_status  ON coaching_requests(status);
+CREATE INDEX IF NOT EXISTS idx_coaching_created ON coaching_requests(created_at);

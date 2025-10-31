@@ -163,3 +163,22 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     return;
   }
 }
+
+export async function autocomplete(interaction: import('discord.js').AutocompleteInteraction) {
+  const focused = interaction.options.getFocused(true);
+  
+  if (focused.name === 'id') {
+    const reports = listAllReports();
+    const q = String(focused.value || '').toLowerCase();
+    const items = reports
+      .slice(0, 25)
+      .map((r) => ({
+        name: `${r.id} — ${r.note.slice(0, 40)}`,
+        value: r.id
+      }))
+      .filter((c) => !q || c.name.toLowerCase().includes(q));
+    await interaction.respond(items);
+  }
+}
+
+export default { data, execute, autocomplete };

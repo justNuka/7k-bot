@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction } from 'discord.js';
+import type { ChatInputCommandInteraction, AutocompleteInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
 import dayjs from 'dayjs';
 import tz from 'dayjs/plugin/timezone.js';
@@ -12,6 +12,7 @@ import { requireAccess } from '../utils/access.js';
 import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { daysLeftInclusive, discordAbsolute, discordRelative } from '../utils/time.js';
 import { pushLog } from '../http/logs.js';
+import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/dateParser.js';
 
 // DB
 import { insertAbsence, listActiveAbsences } from '../db/absences.js';
@@ -25,8 +26,16 @@ export const data = new SlashCommandBuilder()
   .addSubcommand(sc => sc
     .setName('add')
     .setDescription('Déclarer une absence (membre)')
-    .addStringOption(o => o.setName('debut').setDescription('Date de début (YYYY-MM-DD)').setRequired(true))
-    .addStringOption(o => o.setName('fin').setDescription('Date de fin (YYYY-MM-DD)').setRequired(true))
+    .addStringOption(o => o
+      .setName('debut')
+      .setDescription('Date de début (ex: "demain", "lundi", "15/11/2025")')
+      .setRequired(true)
+      .setAutocomplete(true))
+    .addStringOption(o => o
+      .setName('fin')
+      .setDescription('Date de fin (ex: "vendredi", "dans 5 jours", "20/11/2025")')
+      .setRequired(true)
+      .setAutocomplete(true))
     .addStringOption(o => o.setName('raison').setDescription('Raison (optionnel)'))
     .addStringOption(o => o.setName('note').setDescription('Note (optionnel)'))
   )
@@ -43,14 +52,21 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       // Ouvert à tous
       await interaction.deferReply({ ephemeral: true });
 
-      const debut  = interaction.options.getString('debut', true);
-      const fin    = interaction.options.getString('fin', true);
+      const debutInput = interaction.options.getString('debut', true);
+      const finInput   = interaction.options.getString('fin', true);
       const reason = interaction.options.getString('raison') ?? undefined;
       const note   = interaction.options.getString('note') ?? undefined;
 
+      // Parser les dates avec le nouveau système
+      const debut = parseDate(debutInput);
+      const fin = parseDate(finInput);
+      
+      if (!debut) return interaction.editReply(`❌ Date de début invalide : "${debutInput}"\n💡 Formats acceptés : "demain", "lundi", "15/11/2025", "15 novembre", etc.`);
+      if (!fin) return interaction.editReply(`❌ Date de fin invalide : "${finInput}"\n💡 Formats acceptés : "vendredi", "dans 5 jours", "20/11/2025", etc.`);
+
       const s = dayjs.tz(debut, 'YYYY-MM-DD', TZ);
       const e = dayjs.tz(fin,   'YYYY-MM-DD', TZ);
-      if (!s.isValid() || !e.isValid()) return interaction.editReply('❌ Dates invalides (format: `YYYY-MM-DD`).');
+      if (!s.isValid() || !e.isValid()) return interaction.editReply('❌ Dates invalides après parsing.');
       if (e.isBefore(s)) return interaction.editReply('❌ La date de fin doit être **après ou égale** à la date de début.');
 
       const row = insertAbsence({
@@ -134,4 +150,15 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 }
 
-export default { data, execute };
+export async function autocomplete(interaction: AutocompleteInteraction) {
+  const focused = interaction.options.getFocused(true);
+  
+  if (focused.name === 'debut' || focused.name === 'fin') {
+    const suggestions = getDateSuggestions(focused.value);
+    return interaction.respond(suggestions);
+  }
+  
+  return interaction.respond([]);
+}
+
+export default { data, execute, autocomplete };

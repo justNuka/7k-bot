@@ -1,5 +1,5 @@
 // src/commands/banniere.ts
-import type { ChatInputCommandInteraction } from 'discord.js';
+import type { ChatInputCommandInteraction, AutocompleteInteraction } from 'discord.js';
 import { SlashCommandBuilder } from 'discord.js';
 import dayjs from 'dayjs';
 import tz from 'dayjs/plugin/timezone.js';
@@ -15,6 +15,7 @@ import { officerDefer, officerEdit } from '../utils/officerReply.js';
 import { MIRROR_PING_ALLOWLIST, MIRROR_PING_BLOCKLIST, cmdKey } from '../config/mirror.js';
 import { sendToChannel } from '../utils/send.js';
 import { pushLog } from '../http/logs.js';
+import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/dateParser.js';
 
 // ⬇️ DB
 import {
@@ -47,9 +48,17 @@ export const data = new SlashCommandBuilder()
     .setName('add')
     .setDescription('Ajouter une bannière')
     .addStringOption(o => o.setName('nom').setDescription('Nom de la bannière').setRequired(true))
-    .addStringOption(o => o.setName('debut_date').setDescription('YYYY-MM-DD').setRequired(true))
+    .addStringOption(o => o
+      .setName('debut_date')
+      .setDescription('Date de début (ex: "demain", "lundi", "15/11/2025")')
+      .setRequired(true)
+      .setAutocomplete(true))
     .addStringOption(o => o.setName('debut_heure').setDescription('HH:MM (24h)').setRequired(true))
-    .addStringOption(o => o.setName('fin_date').setDescription('YYYY-MM-DD').setRequired(true))
+    .addStringOption(o => o
+      .setName('fin_date')
+      .setDescription('Date de fin (ex: "vendredi", "dans 5 jours", "20/11/2025")')
+      .setRequired(true)
+      .setAutocomplete(true))
     .addStringOption(o => o.setName('fin_heure').setDescription('HH:MM (24h)').setRequired(true))
     .addStringOption(o => o.setName('note').setDescription('Note (optionnel)'))
     .addStringOption(o => o.setName('image').setDescription('URL image (optionnel)'))
@@ -82,9 +91,15 @@ export const data = new SlashCommandBuilder()
       .setAutocomplete(true)
     )
     .addStringOption(o => o.setName('nom').setDescription('Nouveau nom'))
-    .addStringOption(o => o.setName('debut_date').setDescription('YYYY-MM-DD'))
+    .addStringOption(o => o
+      .setName('debut_date')
+      .setDescription('Nouvelle date de début (ex: "demain", "15/11/2025")')
+      .setAutocomplete(true))
     .addStringOption(o => o.setName('debut_heure').setDescription('HH:MM'))
-    .addStringOption(o => o.setName('fin_date').setDescription('YYYY-MM-DD'))
+    .addStringOption(o => o
+      .setName('fin_date')
+      .setDescription('Nouvelle date de fin (ex: "vendredi", "20/11/2025")')
+      .setAutocomplete(true))
     .addStringOption(o => o.setName('fin_heure').setDescription('HH:MM'))
     .addStringOption(o => o.setName('note').setDescription('Nouvelle note'))
     .addStringOption(o => o.setName('image').setDescription('Nouvelle URL image'))
@@ -108,16 +123,23 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     if (sub === 'add') {
       const name = interaction.options.getString('nom', true);
-      const sd = interaction.options.getString('debut_date', true);
+      const sdInput = interaction.options.getString('debut_date', true);
       const sh = interaction.options.getString('debut_heure', true);
-      const ed = interaction.options.getString('fin_date', true);
+      const edInput = interaction.options.getString('fin_date', true);
       const eh = interaction.options.getString('fin_heure', true);
       const note = interaction.options.getString('note') ?? undefined;
       const image = interaction.options.getString('image') ?? undefined;
 
+      // Parser les dates avec le nouveau système
+      const sd = parseDate(sdInput);
+      const ed = parseDate(edInput);
+      
+      if (!sd) return officerEdit(interaction, `❌ Date de début invalide : "${sdInput}"\n💡 Formats acceptés : "demain", "lundi", "15/11/2025", "15 novembre", etc.`);
+      if (!ed) return officerEdit(interaction, `❌ Date de fin invalide : "${edInput}"\n💡 Formats acceptés : "vendredi", "dans 5 jours", "20/11/2025", etc.`);
+
       const start = parseLocal(sd, sh);
       const end = parseLocal(ed, eh);
-      if (!start || !end) return officerEdit(interaction, '❌ Dates/heures invalides (formats: `YYYY-MM-DD` et `HH:MM`).');
+      if (!start || !end) return officerEdit(interaction, '❌ Heures invalides (format: `HH:MM`).');
       if (!end.isAfter(start)) return officerEdit(interaction, '❌ La date de fin doit être **après** la date de début.');
 
       const b: BannerRow = {
@@ -226,14 +248,14 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       if (!b) return officerEdit(interaction, '❌ ID introuvable.');
 
       const nm = interaction.options.getString('nom') ?? undefined;
-      const sD = interaction.options.getString('debut_date') ?? undefined;
+      const sDInput = interaction.options.getString('debut_date') ?? undefined;
       const sH = interaction.options.getString('debut_heure') ?? undefined;
-      const eD = interaction.options.getString('fin_date') ?? undefined;
+      const eDInput = interaction.options.getString('fin_date') ?? undefined;
       const eH = interaction.options.getString('fin_heure') ?? undefined;
       const note = interaction.options.getString('note') ?? undefined;
       const image = interaction.options.getString('image') ?? undefined;
 
-      if ((sD && !sH) || (!sD && sH) || (eD && !eH) || (!eD && eH)) {
+      if ((sDInput && !sH) || (!sDInput && sH) || (eDInput && !eH) || (!eDInput && eH)) {
         pushLog({
           ts: new Date().toISOString(),
           level: 'warn',
@@ -246,14 +268,18 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
       let startIso = b.start_iso;
       let endIso = b.end_iso;
-      if (sD && sH) {
+      if (sDInput && sH) {
+        const sD = parseDate(sDInput);
+        if (!sD) return officerEdit(interaction, `❌ Date de début invalide : "${sDInput}"\n💡 Formats acceptés : "demain", "lundi", "15/11/2025", etc.`);
         const s = parseLocal(sD, sH);
-        if (!s) return officerEdit(interaction, '❌ Début invalide.');
+        if (!s) return officerEdit(interaction, '❌ Heure de début invalide.');
         startIso = s.toISOString();
       }
-      if (eD && eH) {
+      if (eDInput && eH) {
+        const eD = parseDate(eDInput);
+        if (!eD) return officerEdit(interaction, `❌ Date de fin invalide : "${eDInput}"\n💡 Formats acceptés : "vendredi", "20/11/2025", etc.`);
         const e = parseLocal(eD, eH);
-        if (!e) return officerEdit(interaction, '❌ Fin invalide.');
+        if (!e) return officerEdit(interaction, '❌ Heure de fin invalide.');
         endIso = e.toISOString();
       }
       if (dayjs(endIso).isBefore(dayjs(startIso))) {
@@ -339,4 +365,32 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   }
 }
 
-export default { data, execute };
+export async function autocomplete(interaction: AutocompleteInteraction) {
+  const focused = interaction.options.getFocused(true);
+  
+  // Autocomplete pour les dates
+  if (focused.name === 'debut_date' || focused.name === 'fin_date') {
+    const suggestions = getDateSuggestions(focused.value);
+    return interaction.respond(suggestions);
+  }
+  
+  // Autocomplete pour les IDs (remove/edit)
+  if (focused.name === 'id') {
+    const allBanners = listAllBanners();
+    const filtered = allBanners
+      .filter(b => 
+        b.id.toLowerCase().includes(focused.value.toLowerCase()) || 
+        b.name.toLowerCase().includes(focused.value.toLowerCase())
+      )
+      .slice(0, 25)
+      .map(b => ({
+        name: `${b.name} (${b.id})`,
+        value: b.id
+      }));
+    return interaction.respond(filtered);
+  }
+  
+  return interaction.respond([]);
+}
+
+export default { data, execute, autocomplete };

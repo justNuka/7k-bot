@@ -11,12 +11,16 @@
     "dev": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/index.ts",
     "register:prod": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/scripts/register-commands.ts",
     "prod": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/index.ts",
+    "start:daemon": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/index.ts",
     "inspect:dev": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/inspect-commands.ts",
     "clear-global": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/scripts/clear-global.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node -r dotenv/config dist/index.js",
     "db:init": "node src/scripts/init_db.cjs",
-    "db:explorer": "node src/scripts/db_explorer.cjs"
+    "db:explorer": "node src/scripts/db_explorer.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
@@ -48,8 +52,10 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.1",
+    "@vitest/coverage-v8": "^2.1.8",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.8"
   }
 }

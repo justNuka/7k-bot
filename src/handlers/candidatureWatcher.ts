@@ -18,7 +18,8 @@ export async function onCandidatureMessage(msg: Message) {
 
     // ignore si officier
     const member = await msg.guild.members.fetch(msg.author.id).catch(() => null);
-    if (member?.roles.cache.has(ROLE_IDS.OFFICIERS)) return;
+    if (!member) return;
+    if (member.roles.cache.has(ROLE_IDS.OFFICIERS)) return;
 
     // cooldown anti spam
     const now = Date.now();
@@ -26,13 +27,44 @@ export async function onCandidatureMessage(msg: Message) {
     if (now - last < COOLDOWN_MS) return;
     lastPostByUser.set(msg.author.id, now);
 
-    // 1 seule “open” par user
+    // 1 seule "open" par user
     if (hasOpenForUser(msg.author.id)) {
-      // Tu peux ping léger ici si tu veux informer l’utilisateur
+      // Tu peux ping léger ici si tu veux informer l'utilisateur
       return;
     }
 
-    // insert en DB — on utilise l’ID du message comme PK (unique)
+    // ✅ Roleswap VISITEURS → RECRUES
+    let roleNote = '';
+    if (ROLE_IDS.RECRUES && !member.roles.cache.has(ROLE_IDS.RECRUES)) {
+      try {
+        const me = msg.guild.members.me;
+        const recruesRole = msg.guild.roles.cache.get(ROLE_IDS.RECRUES);
+        const visiteursRole = ROLE_IDS.VISITEURS ? msg.guild.roles.cache.get(ROLE_IDS.VISITEURS) : null;
+        
+        const canManageRecrues = me?.permissions.has('ManageRoles') && recruesRole &&
+          me.roles.highest.comparePositionTo(recruesRole) > 0;
+        const canManageVisiteurs = !visiteursRole || (me?.permissions.has('ManageRoles') &&
+          me.roles.highest.comparePositionTo(visiteursRole) > 0);
+        
+        if (canManageRecrues && canManageVisiteurs) {
+          // Retirer VISITEURS si présent
+          if (ROLE_IDS.VISITEURS && member.roles.cache.has(ROLE_IDS.VISITEURS)) {
+            await member.roles.remove(ROLE_IDS.VISITEURS, `Candidature reçue (#${msg.id})`);
+          }
+          // Ajouter RECRUES
+          await member.roles.add(ROLE_IDS.RECRUES, `Candidature reçue (#${msg.id})`);
+          roleNote = ' — ✅ Roleswap VISITEURS → RECRUES effectué';
+        } else {
+          roleNote = ' — ⚠️ Impossible de faire le roleswap (permissions/hiérarchie)';
+        }
+      } catch (err) {
+        roleNote = ` — ⚠️ Erreur roleswap: ${(err as Error).message}`;
+      }
+    } else if (ROLE_IDS.RECRUES && member.roles.cache.has(ROLE_IDS.RECRUES)) {
+      roleNote = ' — ℹ️ A déjà le rôle RECRUES';
+    }
+
+    // insert en DB — on utilise l'ID du message comme PK (unique)
     const jumpLink = makeJumpLink(msg.guild.id, msg.channelId, msg.id);
     insertCandidature({
       id: String(msg.id),
@@ -48,7 +80,7 @@ export async function onCandidatureMessage(msg: Message) {
     const emb = new EmbedBuilder()
       .setColor(Colors.Orange)
       .setTitle('📬 Nouvelle candidature')
-      .setDescription(`${msg.author} a posté dans <#${CHANNEL_IDS.CANDIDATURES}>`)
+      .setDescription(`${msg.author} a posté dans <#${CHANNEL_IDS.CANDIDATURES}>${roleNote}`)
       .addFields(
         { name: 'ID', value: `\`${msg.id}\``, inline: true },
         { name: 'Lien', value: `[Ouvrir la candidature](${jumpLink})`, inline: true },

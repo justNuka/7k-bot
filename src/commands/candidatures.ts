@@ -18,7 +18,16 @@ import {
   getCandidatureById,
 } from '../db/candidatures.js';
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 5; // Nombre de candidatures par page
+
+/**
+ * Génère un ID lisible à partir d'un message ID Discord
+ * Ex: 1433764806569234494 -> C-494
+ */
+function shortId(fullId: string): string {
+  // Prendre les 3 derniers chiffres pour un ID court
+  return `C-${fullId.slice(-3)}`;
+}
 
 export const data = new SlashCommandBuilder()
   .setName('candidatures')
@@ -39,12 +48,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   if (sub !== 'list') return;
 
   try {
-    await officerDefer(interaction);
+    // Message public au lieu d'éphémère
+    await interaction.deferReply({ ephemeral: false });
 
     const page = interaction.options.getInteger('page') ?? 1;
     const total = countOpenCandidatures();
     if (!total) {
-      return officerEdit(interaction, 'Aucune candidature ouverte.');
+      return interaction.editReply('Aucune candidature ouverte.');
     }
 
     const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -52,37 +62,63 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     const offset = (cur - 1) * PAGE_SIZE;
     const slice = listOpenCandidaturesPaged(PAGE_SIZE, offset);
 
+    // Construction de l'embed avec toutes les candidatures de la page
     const emb = new EmbedBuilder()
       .setColor(Colors.Blurple)
-      .setTitle(`📋 Candidatures ouvertes — ${total} en attente`)
+      .setTitle(`📋 Candidatures ouvertes`)
+      .setDescription(`**${total}** candidature${total > 1 ? 's' : ''} en attente`)
       .setFooter({ text: `Page ${cur}/${maxPage}` })
       .setTimestamp();
 
-    emb.setDescription(
-      slice.map(c => {
-        const when = discordAbsolute(c.created_at, 'f');
-        const link = c.message_url ? ` — [lien](${c.message_url})` : '';
-        return `• **#${c.id}** — <@${c.user_id}> — ${when}${link}`;
-      }).join('\n')
-    );
+    // Afficher chaque candidature comme un field
+    for (const c of slice) {
+      // const sid = shortId(c.id);
+      const id = c.id;
+      const when = discordAbsolute(c.created_at, 'f'); // date courte
+      const link = c.message_url ? ` · [📄 Voir](${c.message_url})` : '';
+      const attachIcon = c.has_attachments ? ' 📎' : '';
+      
+      emb.addFields({
+        name: `${id}${attachIcon}`,
+        value: `<@${c.user_id}> · ${when}${link}`,
+        inline: false
+      });
+    }
 
+    // Boutons : une rangée pour chaque candidature (Accepter / Refuser)
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
 
-    // Pagination
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`cand:page:${cur - 1}`).setStyle(ButtonStyle.Secondary).setLabel('⬅️ Précédent').setDisabled(cur <= 1),
-      new ButtonBuilder().setCustomId(`cand:page:${cur + 1}`).setStyle(ButtonStyle.Secondary).setLabel('Suivant ➡️').setDisabled(cur >= maxPage),
-    ));
-
-    // Actions (accept / reject)
     for (const c of slice) {
+      const sid = shortId(c.id);
       rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`cand:accept:${c.id}`).setStyle(ButtonStyle.Success).setLabel(`Accepter #${c.id}`),
-        new ButtonBuilder().setCustomId(`cand:reject:${c.id}`).setStyle(ButtonStyle.Danger).setLabel(`Refuser #${c.id}`),
+        new ButtonBuilder()
+          .setCustomId(`cand:accept:${c.id}`)
+          .setStyle(ButtonStyle.Success)
+          .setLabel(`✅ ${sid}`),
+        new ButtonBuilder()
+          .setCustomId(`cand:reject:${c.id}`)
+          .setStyle(ButtonStyle.Danger)
+          .setLabel(`❌ ${sid}`),
       ));
     }
 
-    await officerEdit(interaction, { embeds: [emb], components: rows });
+    // Pagination en bas
+    if (maxPage > 1) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`cand:page:${cur - 1}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel('⬅️ Page précédente')
+          .setDisabled(cur <= 1),
+        new ButtonBuilder()
+          .setCustomId(`cand:page:${cur + 1}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel('Page suivante ➡️')
+          .setDisabled(cur >= maxPage),
+      ));
+    }
+
+    await interaction.editReply({ embeds: [emb], components: rows });
 
     pushLog({
       ts: new Date().toISOString(),
@@ -129,8 +165,14 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
     if (action === 'page') {
       const fakeSlash = {
         ...interaction,
-        options: { getSubcommand: () => 'list', getInteger: () => Number(arg) },
-        // on réutilise la même logique d’affichage
+        options: { 
+          getSubcommand: () => 'list', 
+          getInteger: () => Number(arg) 
+        },
+        inGuild: () => interaction.inGuild(),
+        isChatInputCommand: () => true,
+        deferReply: interaction.deferUpdate.bind(interaction),
+        editReply: interaction.editReply.bind(interaction),
       } as any as ChatInputCommandInteraction;
       pushLog({
         ts: new Date().toISOString(),
@@ -143,69 +185,120 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
     }
 
     if (action === 'accept' || action === 'reject') {
-      const id = arg; // TEXT PK
+      const id = arg; // TEXT PK (full message ID)
+      // const sid = shortId(id); // Short ID pour affichage
       const entry = getCandidatureById(id);
       if (!entry || entry.status !== 'open') {
         pushLog({ 
           ts: new Date().toISOString(),
           level: 'warn',
           component: 'candidatures',
-          msg: `Candidature #${id} introuvable/fermée pour ${action} par <@${interaction.user.id}>`,
+          msg: `Candidature ${id} introuvable/fermée pour ${action} par <@${interaction.user.id}>`,
           meta: {}
         });
-        return interaction.reply({ content: `❌ Candidature #${id} introuvable (ou déjà traitée).`, ephemeral: true });
+        return interaction.reply({ content: `❌ Candidature ${id} introuvable (ou déjà traitée).`, ephemeral: true });
       }
 
       setCandidatureStatus(id, action === 'accept' ? 'accepted' : 'rejected');
 
-      // roleswap si accept
+      // roleswap selon acceptation ou refus
       let extraNote = '';
-      if (action === 'accept') {
-        try {
-          const guild = await interaction.client.guilds.fetch(entry.channel_id.split('/')[0]).catch(()=>null);
-          const targetGuild = guild ?? (await interaction.client.guilds.fetch(process.env.GUILD_ID!).catch(()=>null));
-          if (targetGuild) {
-            const member = await targetGuild.members.fetch(entry.user_id).catch(() => null);
-            if (member) {
-              const me = targetGuild.members.me;
-              const canManage =
-                me?.permissions.has('ManageRoles') &&
-                (!ROLE_IDS.RECRUES || me.roles.highest.comparePositionTo(targetGuild.roles.cache.get(ROLE_IDS.RECRUES)!) > 0) &&
-                (!ROLE_IDS.MEMBRES || me.roles.highest.comparePositionTo(targetGuild.roles.cache.get(ROLE_IDS.MEMBRES)!) > 0);
-              if (canManage) {
-                if (ROLE_IDS.MEMBRES && !member.roles.cache.has(ROLE_IDS.MEMBRES)) {
-                  await member.roles.add(ROLE_IDS.MEMBRES, `candidature acceptée (#${id})`);
-                }
+      try {
+        const guild = await interaction.client.guilds.fetch(entry.channel_id.split('/')[0]).catch(()=>null);
+        const targetGuild = guild ?? (await interaction.client.guilds.fetch(process.env.GUILD_ID!).catch(()=>null));
+        if (targetGuild) {
+          const member = await targetGuild.members.fetch(entry.user_id).catch(() => null);
+          if (member) {
+            const me = targetGuild.members.me;
+            const recruesRole = ROLE_IDS.RECRUES ? targetGuild.roles.cache.get(ROLE_IDS.RECRUES) : null;
+            const membresRole = ROLE_IDS.MEMBRES ? targetGuild.roles.cache.get(ROLE_IDS.MEMBRES) : null;
+            const visiteursRole = ROLE_IDS.VISITEURS ? targetGuild.roles.cache.get(ROLE_IDS.VISITEURS) : null;
+
+            const canManageRecrues = !recruesRole || (me?.permissions.has('ManageRoles') && me.roles.highest.comparePositionTo(recruesRole) > 0);
+            const canManageMembres = !membresRole || (me?.permissions.has('ManageRoles') && me.roles.highest.comparePositionTo(membresRole) > 0);
+            const canManageVisiteurs = !visiteursRole || (me?.permissions.has('ManageRoles') && me.roles.highest.comparePositionTo(visiteursRole) > 0);
+            
+            const canManage = canManageRecrues && canManageMembres && canManageVisiteurs;
+
+            if (canManage) {
+              if (action === 'accept') {
+                // ACCEPTÉE : RECRUES → MEMBRES
                 if (ROLE_IDS.RECRUES && member.roles.cache.has(ROLE_IDS.RECRUES)) {
-                  await member.roles.remove(ROLE_IDS.RECRUES, `candidature acceptée (#${id})`);
+                  await member.roles.remove(ROLE_IDS.RECRUES, `candidature acceptée (${id})`);
                 }
-                extraNote = ' — ✅ roleswap effectué.';
+                if (ROLE_IDS.MEMBRES && !member.roles.cache.has(ROLE_IDS.MEMBRES)) {
+                  await member.roles.add(ROLE_IDS.MEMBRES, `candidature acceptée (${id})`);
+                }
+                extraNote = ' — ✅ Roleswap RECRUES → MEMBRES effectué';
               } else {
-                extraNote = ' — ⚠️ perms/hiérarchie rôles insuffisantes.';
+                // REFUSÉE : RECRUES → VISITEURS
+                if (ROLE_IDS.RECRUES && member.roles.cache.has(ROLE_IDS.RECRUES)) {
+                  await member.roles.remove(ROLE_IDS.RECRUES, `candidature refusée (${id})`);
+                }
+                if (ROLE_IDS.VISITEURS && !member.roles.cache.has(ROLE_IDS.VISITEURS)) {
+                  await member.roles.add(ROLE_IDS.VISITEURS, `candidature refusée (${id})`);
+                }
+                extraNote = ' — ✅ Roleswap RECRUES → VISITEURS effectué';
               }
             } else {
-              extraNote = ' — ⚠️ membre introuvable (a quitté ?).';
+              extraNote = ' — ⚠️ perms/hiérarchie rôles insuffisantes';
             }
+          } else {
+            extraNote = ' — ⚠️ membre introuvable (a quitté ?)';
           }
-        } catch { /* ignore */ }
+        }
+      } catch (err) {
+        extraNote = ` — ⚠️ Erreur roleswap: ${(err as Error).message}`;
       }
 
       // log public
       await sendToChannel(interaction.client, CHANNEL_IDS.RETOURS_BOT, {
-        content: `**${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'}** par <@${interaction.user.id}> — candidature **#${id}** de <@${entry.user_id}> — ${entry.message_url ? `[lien](${entry.message_url})` : '(pas de lien)'}${extraNote}`,
+        content: `**${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'}** par <@${interaction.user.id}> — candidature **${id}** de <@${entry.user_id}> — ${entry.message_url ? `[lien](${entry.message_url})` : '(pas de lien)'}${extraNote}`,
       });
 
       // DM best-effort
       try {
         const user = await interaction.client.users.fetch(entry.user_id);
         if (action === 'accept') {
-          await user.send(`🎉 Ta candidature (**#${id}**) a été **acceptée** ! Bienvenue !`);
+          const acceptMsg = [
+            `🎉 **Félicitations !**`,
+            ``,
+            `Ta candidature a été **acceptée** ! Bienvenue dans la guilde ! 🎊`,
+            ``,
+            `**Quelques infos pour bien démarrer :**`,
+            `• Tu as maintenant accès à tous les channels de la guilde`,
+            `• N'hésite pas à te présenter et à participer aux discussions`,
+            `• Consulte les annonces importantes pour rester à jour`,
+            `• Si tu as des questions, n'hésite surtout pas à les poser aux officiers ou aux membres`,
+            ``,
+            `**Important :** Pense à faire tes CR (Castle Rush) quotidiennement et à participer aux événements de la guilde !`,
+            ``,
+            `On est ravis de t'accueillir parmi nous ! 🚀`,
+          ].join('\n');
+          await user.send(acceptMsg);
         } else {
-          await user.send(`👋 Ta candidature (**#${id}**) a été **refusée**. Merci pour l’intérêt porté à la guilde.`);
+          const rejectMsg = [
+            `👋 **Candidature refusée**`,
+            ``,
+            `Merci pour l'intérêt porté à notre guilde ! Malheureusement, ton profil ne correspond pas à nos critères à l'heure actuelle.`,
+            ``,
+            `**Mais pas de soucis !** 😊`,
+            `• Tu peux rester sur le Discord pour discuter dans les channels disponibles`,
+            `• N'hésite pas à demander des conseils et de l'aide pour progresser`,
+            `• Tu pourras repostuler plus tard une fois que ton compte aura évolué`,
+            ``,
+            `**Ce qu'on recherche généralement :**`,
+            `• Un niveau de compte suffisant et une progression active (notamment en aventure et Tour)`,
+            `• Une participation régulière et un esprit d'équipe`,
+            `• De la motivation pour les événements de guilde`,
+            ``,
+            `Continue à progresser et à participer aux discussions, on sera ravis de réexaminer ta candidature plus tard ! 💪`,
+          ].join('\n');
+          await user.send(rejectMsg);
         }
       } catch {}
 
-      await interaction.reply({ content: `${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'} (#${id}).`, ephemeral: true });
+      await interaction.reply({ content: `${action === 'accept' ? '✅ Acceptée' : '❌ Refusée'} (${id}).`, ephemeral: true });
 
       // rafraichir la page courante via footer Page X/Y si dispo
       const footerText = interaction.message.embeds[0]?.footer?.text ?? '';
@@ -214,7 +307,13 @@ export async function handleCandidaturesButton(interaction: ButtonInteraction) {
 
       const fakeSlash = {
         ...interaction,
-        options: { getSubcommand: () => 'list', getInteger: () => curPage },
+        options: { 
+          getSubcommand: () => 'list', 
+          getInteger: () => curPage 
+        },
+        inGuild: () => interaction.inGuild(),
+        isChatInputCommand: () => true,
+        deferReply: interaction.deferUpdate.bind(interaction),
         editReply: interaction.update.bind(interaction),
       } as any as ChatInputCommandInteraction;
 
