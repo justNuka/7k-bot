@@ -1,9 +1,5 @@
 -- Schéma de la base de données SQLite utilisée par le bot
 
--- Un oubli par (semaine, jour, user)
-CREATE UNIQUE INDEX IF NOT EXISTS cr_week_uq
-ON cr_week(week_start, day, user_id);
-
 -- Membres
 CREATE TABLE IF NOT EXISTS members (
   user_id     TEXT PRIMARY KEY,
