@@ -180,3 +180,34 @@ CREATE TABLE IF NOT EXISTS coaching_requests (
 
 CREATE INDEX IF NOT EXISTS idx_coaching_status  ON coaching_requests(status);
 CREATE INDEX IF NOT EXISTS idx_coaching_created ON coaching_requests(created_at);
+
+-- Articles Netmarble scrapés
+CREATE TABLE IF NOT EXISTS netmarble_articles (
+  id         TEXT NOT NULL,                    -- ID de l'article (ex: "532")
+  category   TEXT NOT NULL,                    -- 'notices' | 'updates' | 'known' | 'devnotes'
+  url        TEXT NOT NULL,                    -- URL complète de l'article
+  seen_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), -- Date de découverte
+  PRIMARY KEY (category, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_netmarble_category ON netmarble_articles(category);
+CREATE INDEX IF NOT EXISTS idx_netmarble_seen_at ON netmarble_articles(seen_at);
+
+-- Signalements de bugs
+CREATE TABLE IF NOT EXISTS bug_reports (
+  id            TEXT PRIMARY KEY,                 -- ex: bug_20251101_123456_abcd
+  user_id       TEXT NOT NULL,                    -- utilisateur signalant le bug
+  command       TEXT,                             -- commande concernée (null si "Autre")
+  description   TEXT NOT NULL,                    -- description du bug
+  error_message TEXT,                             -- message d'erreur (optionnel)
+  status        TEXT NOT NULL DEFAULT 'open',     -- 'open' | 'in_progress' | 'resolved' | 'wontfix'
+  created_at    TEXT NOT NULL,                    -- ISO timestamp
+  
+  resolved_by   TEXT,                             -- officier qui a résolu
+  resolved_at   TEXT,                             -- ISO timestamp
+  resolution    TEXT                              -- note de résolution
+);
+
+CREATE INDEX IF NOT EXISTS idx_bug_status ON bug_reports(status);
+CREATE INDEX IF NOT EXISTS idx_bug_created ON bug_reports(created_at);
+CREATE INDEX IF NOT EXISTS idx_bug_user ON bug_reports(user_id);

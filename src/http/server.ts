@@ -390,13 +390,15 @@ export async function startHttpServer(client: Client) {
 
   // --- démarrage ---
   const port = Number(process.env.DASH_PORT ?? 8787);
-  app.listen({ port, host: '0.0.0.0' })
+  const host = process.env.DASH_HOST ?? '127.0.0.1'; // localhost only for AlwaysData
+  
+  app.listen({ port, host })
     .then(() => {
-      log.info({ port }, '[DASH] HTTP up');
+      log.info({ port, host }, '[DASH] HTTP up');
       pushLog({
         ts: new Date().toISOString(),
         level: 'action',
-        msg: `[HTTP] Dashboard API démarrée sur le port ${port}`
+        msg: `[HTTP] Dashboard API démarrée sur ${host}:${port}`
       });
     })
     .catch(err => {

@@ -63,4 +63,7 @@ export const COMMAND_RULES = {
 
   // Signalements
   'signalement': { roles: [ROLE_IDS.OFFICIERS], channels: [CHANNEL_IDS.COMMANDES_BOT, CHANNEL_IDS.SIGNALEMENTS] },
+
+  // Bug reports (accessible à tous, partout)
+  'bug': { roles: [], channels: [] },
 } as const;

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import { COMMAND_RULES } from '../config/permissions.js';
 import { requireAccess } from '../utils/discord/access.js';
-import { fetchCategoryList, fetchArticleDetail, NmCategoryKey } from '../scrapers/netmarble.js';
+import { fetchCategoryList, NmCategoryKey } from '../scrapers/netmarble.js';
 import { safeError } from '../utils/discord/reply.js';
 import { makeEmbed } from '../utils/formatting/embed.js';
 import fs from 'node:fs/promises';
@@ -18,23 +18,13 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(0n)
   .addSubcommand(sc => sc
     .setName('list')
-    .setDescription('Liste les 5 derniers items par catégorie')
+    .setDescription('Liste les derniers articles par catégorie')
     .addStringOption(o => o.setName('cat').setDescription('Catégorie').setRequired(true).addChoices(
       { name: 'notices', value: 'notices' },
       { name: 'updates', value: 'updates' },
       { name: 'known issues', value: 'known' },
       { name: 'developer notes', value: 'devnotes' },
     ))
-  )
-  .addSubcommand(sc => sc
-    .setName('view')
-    .setDescription('Récupère le contenu détaillé d’un article')
-    .addStringOption(o => o.setName('url').setDescription('URL /sk_rebirth_gl/view/...').setRequired(true))
-  )
-  .addSubcommand(sc => sc
-    .setName('dump')
-    .setDescription('Dump brut HTML vers un .txt (debug si parsing KO)')
-    .addStringOption(o => o.setName('url').setDescription('URL complète').setRequired(true))
   );
 
 export async function execute(interaction: any) {
@@ -58,39 +48,6 @@ export async function execute(interaction: any) {
       });
 
       return interaction.editReply({ embeds: [makeEmbed({ title: `Derniers (${cat})`, description: slice })] });
-    }
-
-    if (sub === 'view') {
-      const url = interaction.options.getString('url', true);
-      const d = await fetchArticleDetail(url);
-      const desc = d.text.slice(0, 1500) + (d.text.length > 1500 ? '…' : '');
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'scrape',
-        msg: `[SCRAPE] /scrape view ${url} by ${interaction.user.tag}`,
-        meta: { userId: interaction.user.id, articleUrl: url }
-      });
-
-      return interaction.editReply({ embeds: [makeEmbed({ title: d.title, url, description: desc })] });
-    }
-
-    if (sub === 'dump') {
-      const url = interaction.options.getString('url', true);
-      const res = await (await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://forum.netmarble.com' } })).text();
-      const outDir = path.resolve('src/data/dumps');
-      await fs.mkdir(outDir, { recursive: true });
-      const file = path.join(outDir, 'dump_' + Date.now() + '.txt');
-      await fs.writeFile(file, res, 'utf8');
-      pushLog({
-        ts: new Date().toISOString(),
-        level: 'info',
-        component: 'scrape',
-        msg: `[SCRAPE] /scrape dump ${url} by ${interaction.user.tag}`,
-        meta: { userId: interaction.user.id, articleUrl: url, file }
-      });
-
-      return interaction.editReply(`✅ Dump écrit → \`${file}\``);
     }
 
   } catch (e) {

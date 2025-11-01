@@ -9,7 +9,7 @@ import { makeEmbed } from '../utils/formatting/embed.js';
 import { safeError } from '../utils/discord/reply.js';
 import { COMMAND_RULES, ROLE_IDS } from '../config/permissions.js';
 import { requireAccess } from '../utils/discord/access.js';
-import { officerDefer, officerEdit } from '../utils/formatting/officerReply.js';
+import { officerDefer, officerDeferPublic, officerEdit } from '../utils/formatting/officerReply.js';
 import { daysLeftInclusive, discordAbsolute, discordRelative } from '../utils/time/time.js';
 import { pushLog } from '../http/logs.js';
 import { parseDate, getDateSuggestions, formatDateReadable } from '../utils/time/dateParser.js';
@@ -104,7 +104,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       const rule = COMMAND_RULES['roleset'] ?? { roles: [ROLE_IDS.OFFICIERS], channels: [] };
       if (!(await requireAccess(interaction, { roles: rule.roles, channels: rule.channels }))) return;
 
-      await officerDefer(interaction); // smart (ephemeral hors salon officiers)
+      await officerDeferPublic(interaction); // public (pas ephemeral)
 
       const items = listActiveAbsences();
       if (!items.length) return officerEdit(interaction, 'Aucune absence en cours / à venir.');

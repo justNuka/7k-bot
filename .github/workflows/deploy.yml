@@ -1,0 +1,64 @@
+name: Deploy Bot to AlwaysData
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  deploy:
+    name: Deploy 7k-bot
+    runs-on: ubuntu-latest
+    
+    # Ne déployer que si [deploy] est dans le message de commit
+    if: contains(github.event.head_commit.message, '[deploy]')
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🚀 Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.ALWAYSDATA_HOST }}
+          username: ${{ secrets.ALWAYSDATA_USER }}
+          key: ${{ secrets.ALWAYSDATA_SSH_KEY }}
+          port: 22
+          script: |
+            # Pull les derniers changements du bot
+            cd /home/${{ secrets.ALWAYSDATA_USER }}/repos/7k-bot
+            git pull origin main
+            
+            # Lancer le script de déploiement (gère bot + dashboard)
+            bash /home/${{ secrets.ALWAYSDATA_USER }}/scripts/alwaysdata-deploy.sh
+      
+      - name: 📢 Notify Discord (success)
+        if: success()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          status: ${{ job.status }}
+          title: "✅ Bot déployé"
+          description: |
+            **Repo:** 7k-bot
+            **Commit:** `${{ github.event.head_commit.id }}`
+            **Message:** ${{ github.event.head_commit.message }}
+            **Auteur:** ${{ github.event.head_commit.author.name }}
+          color: 0x57F287
+      
+      - name: 📢 Notify Discord (failure)
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          status: ${{ job.status }}
+          title: "❌ Déploiement bot échoué"
+          description: |
+            **Repo:** 7k-bot
+            **Commit:** `${{ github.event.head_commit.id }}`
+            **Message:** ${{ github.event.head_commit.message }}
+            **Logs:** [Voir les logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          color: 0xED4245

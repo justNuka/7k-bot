@@ -9,6 +9,7 @@
   "scripts": {
     "register:dev": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/register-commands.ts",
     "dev": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/index.ts",
+    "dev:utf8": "powershell -ExecutionPolicy Bypass -File ./dev-utf8.ps1",
     "register:prod": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/scripts/register-commands.ts",
     "prod": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/index.ts",
     "start:daemon": "node -r dotenv/config ./node_modules/tsx/dist/cli.mjs src/index.ts",
@@ -20,7 +21,10 @@
     "db:explorer": "node src/scripts/db_explorer.cjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:scrape": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/test-scrape.ts",
+    "test:scrape:notify": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/test-scrape-notify.ts",
+    "migrate:netmarble": "node -r dotenv/config -r ./scripts/env/dev.cjs ./node_modules/tsx/dist/cli.mjs src/scripts/migrate-netmarble.ts"
   },
   "repository": {
     "type": "git",

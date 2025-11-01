@@ -1,49 +1,57 @@
 import cron from 'node-cron';
-import { fetchCategoryList, fetchArticleDetail, NmCategoryKey } from '../scrapers/netmarble.js';
-import { readJson, writeJson } from '../utils/storage.js';
+import { EmbedBuilder } from 'discord.js';
+import { fetchCategoryList, NmCategoryKey } from '../scrapers/netmarble.js';
+import { getAllSeenIds, addArticles, cleanupOldArticles } from '../db/netmarble.js';
 import { sendToChannel } from '../utils/discord/send.js';
-import { makeEmbed } from '../utils/formatting/embed.js';
 import { CHANNEL_IDS } from '../config/permissions.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('ScrapeNetmarble');
 
-type SeenStore = Record<NmCategoryKey, string[]>; // ids déjà vus
-const STORE = 'src/data/scraped_seen.json';
-
 const CATS: NmCategoryKey[] = ['notices','updates','known','devnotes'];
-
-async function getSeen(): Promise<SeenStore> {
-  return await readJson<SeenStore>(STORE, { notices:[], updates:[], known:[], devnotes:[] });
-}
-async function setSeen(s: SeenStore) { await writeJson(STORE, s); }
 
 function catLabel(cat: NmCategoryKey) {
   return cat === 'notices' ? 'Notice'
        : cat === 'updates' ? 'Update'
-       : cat === 'known'   ? 'Known issues'
-       : 'Developer Notes';
+       : cat === 'known'   ? 'Known Issue'
+       : 'Developer Note';
+}
+
+function catEmoji(cat: NmCategoryKey) {
+  return cat === 'notices' ? '📢'
+       : cat === 'updates' ? '🔄'
+       : cat === 'known'   ? '⚠️'
+       : '💬';
+}
+
+function catColor(cat: NmCategoryKey): number {
+  return cat === 'notices' ? 0x5865F2 // Bleu Discord
+       : cat === 'updates' ? 0x57F287 // Vert
+       : cat === 'known'   ? 0xFEE75C // Jaune
+       : 0xEB459E; // Rose
 }
 
 export async function scrapeOnceAndNotify(client: any) {
   const channelId = CHANNEL_IDS.INFOS_ANNONCES_JEU || CHANNEL_IDS.RETOURS_BOT; // fallback si pas de canal dédié
   if (!channelId) { log.warn('Pas de canal configuré pour le scraping'); return; }
 
-  const seen = await getSeen();
+  // Récupérer les IDs déjà vus depuis la DB
+  const seenByCategory = getAllSeenIds();
   const newPosts: { cat: NmCategoryKey; id: string; title: string; url: string; date?: string }[] = [];
+  const articlesToAdd: { category: NmCategoryKey; id: string; url: string }[] = [];
 
   for (const cat of CATS) {
     try {
       const list = await fetchCategoryList(cat);
-      const known = new Set(seen[cat] || []);
+      const known = new Set(seenByCategory[cat] || []);
+      
       // du plus récent au plus ancien
       for (const it of list) {
         if (!known.has(it.id)) {
           newPosts.push(it);
-          known.add(it.id);
+          articlesToAdd.push({ category: cat, id: it.id, url: it.url });
         }
       }
-      seen[cat] = Array.from(known).slice(-200); // garde historique raisonnable
     } catch (e) {
       log.error({ category: cat, error: e }, 'Erreur scraping liste');
     }
@@ -52,33 +60,56 @@ export async function scrapeOnceAndNotify(client: any) {
   // rien de neuf → on sort
   if (newPosts.length === 0) {
     log.info('Aucun nouveau post Netmarble');
-    await setSeen(seen);
+    // Nettoyage périodique (garde les 200 derniers par catégorie)
+    cleanupOldArticles();
     return;
   }
 
-  // poste un embed par nouveau post (ou regroupe si tu préfères)
+  // Sauvegarder les nouveaux articles en DB (batch insert)
+  addArticles(articlesToAdd);
+
+  // Poste un embed stylisé pour chaque nouveau post
   for (const p of newPosts) {
     try {
-      const detail = await fetchArticleDetail(p.url).catch(()=>null);
-      const emb = makeEmbed({
-        title: `📰 ${catLabel(p.cat)} — ${p.title}`,
-        url: p.url,
-        description: detail?.text ? (detail.text.slice(0, 800) + (detail.text.length>800 ? '…' : '')) : (p.date ? `Publié: ${p.date}` : undefined),
-        footer: `Catégorie: ${catLabel(p.cat)}`
-      });
+      const emoji = catEmoji(p.cat);
+      const label = catLabel(p.cat);
+      const color = catColor(p.cat);
+      
+      const emb = new EmbedBuilder()
+        .setColor(color)
+        .setTitle(`${emoji} **${label}** — Nouveau post`)
+        .setURL(p.url)
+        .setDescription(`Un nouveau post a été publié dans la catégorie **${label}**.\n\n[📖 Lire l'article complet](${p.url})`)
+        .setFooter({ text: `Catégorie: ${label} • Seven Knights Re:BIRTH` })
+        .setTimestamp(new Date());
+      
       await sendToChannel(client, channelId, { embeds: [emb] });
+      
+      log.info({ 
+        category: p.cat, 
+        id: p.id, 
+        url: p.url 
+      }, `Notification envoyée: ${label} #${p.id}`);
+      
     } catch (e) {
-      log.error({ url: p.url, error: e }, 'Erreur post scraping');
+      const err = e as Error;
+      log.error({ 
+        url: p.url, 
+        error: err.message 
+      }, 'Erreur envoi notification');
     }
   }
 
-  await setSeen(seen);
   log.info({ count: newPosts.length }, 'Posts Netmarble publiés');
+  
+  // Nettoyage périodique
+  cleanupOldArticles();
 }
 
-/** Planifie le scraping récurrent (par défaut: toutes les 6h) */
+/** Planifie le scraping récurrent (par défaut: toutes les heures) */
 export function registerScrapeJob(client: any) {
-  const spec = process.env.SCRAPE_CRON || '0 */6 * * *';
+  const spec = process.env.SCRAPE_CRON || '0 * * * *';
   const tz = process.env.RESET_CRON_TZ || 'Europe/Paris';
   cron.schedule(spec, () => scrapeOnceAndNotify(client), { timezone: tz });
+  log.info({ cron: spec, timezone: tz }, 'Job de scraping Netmarble programmé');
 }
