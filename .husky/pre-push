@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Pre-push hook pour build automatique (bot)
+echo "🔨 [pre-push] Build du bot en cours..."
+
+# Build TypeScript
+npm run build
+
+# Vérifie que le build a réussi
+if [ $? -eq 0 ]; then
+  echo "✅ [pre-push] Build réussi !"
+  
+  # Ajoute dist/ au commit s'il y a des changements
+  if git diff --quiet dist/ 2>/dev/null; then
+    echo "ℹ️  [pre-push] Aucun changement dans dist/"
+  else
+    echo "📦 [pre-push] Ajout de dist/ au commit..."
+    git add dist/
+    git commit --amend --no-edit --no-verify
+    echo "✅ [pre-push] dist/ ajouté au dernier commit"
+  fi
+else
+  echo "❌ [pre-push] Build échoué ! Push annulé."
+  exit 1
+fi
