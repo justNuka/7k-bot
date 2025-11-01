@@ -134,19 +134,20 @@ if [ "$DEPLOY_DASH" = true ]; then
         mv .env.backup .env
     fi
 
-    # Install dependencies
+    # Install dependencies (toutes, y compris devDependencies pour le build)
     log "📦 Installation des dépendances dashboard..."
-    npm ci --only=production
+    npm ci
 
-    # Note: Le build Next.js doit être fait en local AVANT le push
-    # Le dossier .next/ est versionné dans Git
-    # Vérifier que .next/ existe
-    if [ ! -d ".next" ]; then
-        log "❌ ERREUR : Dossier .next/ manquant ! Build le projet en local avant de push."
+    # Build Next.js sur le serveur
+    log "🔨 Build Next.js en cours..."
+    npm run build
+
+    if [ $? -ne 0 ]; then
+        log "❌ ERREUR : Build Next.js échoué !"
         exit 1
     fi
     
-    log "✅ Dashboard déployé avec succès (.next/ versionné)"
+    log "✅ Dashboard déployé avec succès (.next/ construit sur serveur)"
 else
     log "⏭️  Skip déploiement dashboard (pas de [deploy])"
 fi
