@@ -6,9 +6,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Database = require('better-sqlite3');
 
-const DB_DIR  = process.env.DB_DIR ?? 'src/data';
-const DB_PATH = path.join(DB_DIR, 'bot.db');
-const SCHEMA  = path.join('src', 'db', 'schema.sql');
+// Priorité : SQLITE_PATH > DB_DIR/bot.db > src/data/bot.db (fallback)
+const DB_PATH = process.env.SQLITE_PATH 
+  ? process.env.SQLITE_PATH 
+  : path.join(process.env.DB_DIR ?? 'src/data', 'bot.db');
+
+const DB_DIR = path.dirname(DB_PATH);
+const SCHEMA = path.join('src', 'db', 'schema.sql');
 
 function main() {
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
