@@ -1,6 +1,3 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 # Pre-push hook pour build automatique (bot)
 echo "🔨 [pre-push] Build du bot en cours..."
 

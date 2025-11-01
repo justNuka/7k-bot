@@ -97,11 +97,15 @@ if [ "$DEPLOY_BOT" = true ]; then
     log "📦 Installation des dépendances bot..."
     npm ci --only=production
 
-    # Build TypeScript
-    log "🔨 Build TypeScript bot..."
-    npm run build
+    # Note: Le build TypeScript doit être fait en local AVANT le push
+    # Le dossier dist/ est versionné dans Git
+    # Vérifier que dist/ existe
+    if [ ! -d "dist" ]; then
+        log "❌ ERREUR : Dossier dist/ manquant ! Build le projet en local avant de push."
+        exit 1
+    fi
     
-    log "✅ Bot déployé avec succès"
+    log "✅ Bot déployé avec succès (dist/ versionné)"
 else
     log "⏭️  Skip déploiement bot (pas de [deploy])"
 fi
@@ -134,11 +138,15 @@ if [ "$DEPLOY_DASH" = true ]; then
     log "📦 Installation des dépendances dashboard..."
     npm ci --only=production
 
-    # Build Next.js
-    log "🔨 Build Next.js dashboard..."
-    npm run build
+    # Note: Le build Next.js doit être fait en local AVANT le push
+    # Le dossier .next/ est versionné dans Git
+    # Vérifier que .next/ existe
+    if [ ! -d ".next" ]; then
+        log "❌ ERREUR : Dossier .next/ manquant ! Build le projet en local avant de push."
+        exit 1
+    fi
     
-    log "✅ Dashboard déployé avec succès"
+    log "✅ Dashboard déployé avec succès (.next/ versionné)"
 else
     log "⏭️  Skip déploiement dashboard (pas de [deploy])"
 fi
