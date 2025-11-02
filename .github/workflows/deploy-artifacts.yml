@@ -1,0 +1,131 @@
+name: Build & Deploy to AlwaysData
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  build-and-deploy:
+    name: Build artifacts & Deploy
+    runs-on: ubuntu-latest
+    
+    # Ne déployer que si [deploy] est dans le message de commit
+    if: contains(github.event.head_commit.message, '[deploy]')
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            ../7k-bot-dashboard/package-lock.json
+      
+      # ========================================
+      # BUILD BOT (TypeScript + prod node_modules)
+      # ========================================
+      - name: 🔨 Build bot
+        working-directory: .
+        run: |
+          npm ci
+          npm run build
+          npm prune --omit=dev
+      
+      - name: 📦 Pack bot artifacts
+        run: |
+          tar -czf bot-artifacts.tar.gz \
+            dist/ \
+            node_modules/ \
+            package.json \
+            package-lock.json
+      
+      # ========================================
+      # CHECKOUT & BUILD DASHBOARD (Next.js standalone)
+      # ========================================
+      - name: 📥 Checkout dashboard repo
+        uses: actions/checkout@v4
+        with:
+          repository: justNuka/7k-bot-dashboard
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: dashboard
+      
+      - name: 🔨 Build dashboard
+        working-directory: dashboard
+        run: |
+          npm ci
+          npm run build
+      
+      - name: 📦 Pack dashboard artifacts
+        working-directory: dashboard
+        run: |
+          # Next.js standalone inclut :
+          # - .next/standalone/ (serveur + node_modules mini)
+          # - .next/static/ (assets)
+          # - public/ (fichiers statiques)
+          tar -czf ../dashboard-artifacts.tar.gz \
+            .next/standalone/ \
+            .next/static/ \
+            public/ || true
+      
+      # ========================================
+      # DEPLOY TO ALWAYSDATA
+      # ========================================
+      - name: 🔑 Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ALWAYSDATA_SSH_KEY }}
+      
+      - name: 🌐 Add AlwaysData to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.ALWAYSDATA_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: 📤 Upload artifacts to AlwaysData
+        run: |
+          scp bot-artifacts.tar.gz dashboard-artifacts.tar.gz \
+            ${{ secrets.ALWAYSDATA_USER }}@${{ secrets.ALWAYSDATA_HOST }}:~/
+      
+      - name: 🚀 Deploy & restart on AlwaysData
+        run: |
+          ssh ${{ secrets.ALWAYSDATA_USER }}@${{ secrets.ALWAYSDATA_HOST }} << 'EOF'
+            set -e
+            
+            echo "📦 Deploying bot artifacts..."
+            mkdir -p ~/apps/7k-bot
+            
+            # Backup .env if exists
+            [ -f ~/apps/7k-bot/.env ] && cp ~/apps/7k-bot/.env ~/apps/7k-bot/.env.bak
+            
+            # Extract bot artifacts
+            tar -xzf ~/bot-artifacts.tar.gz -C ~/apps/7k-bot
+            rm -f ~/bot-artifacts.tar.gz
+            
+            # Restore .env
+            [ -f ~/apps/7k-bot/.env.bak ] && mv ~/apps/7k-bot/.env.bak ~/apps/7k-bot/.env
+            
+            echo "📦 Deploying dashboard artifacts..."
+            mkdir -p ~/apps/7k-bot-dashboard
+            
+            # Backup .env if exists
+            [ -f ~/apps/7k-bot-dashboard/.env ] && cp ~/apps/7k-bot-dashboard/.env ~/apps/7k-bot-dashboard/.env.bak
+            
+            # Extract dashboard artifacts
+            tar -xzf ~/dashboard-artifacts.tar.gz -C ~/apps/7k-bot-dashboard
+            rm -f ~/dashboard-artifacts.tar.gz
+            
+            # Restore .env
+            [ -f ~/apps/7k-bot-dashboard/.env.bak ] && mv ~/apps/7k-bot-dashboard/.env.bak ~/apps/7k-bot-dashboard/.env
+            
+            echo "✅ Deployment complete!"
+            echo "ℹ️  Restart apps via AlwaysData UI or API"
+            
+            # TODO: Ajouter restart automatique via AlwaysData API
+          EOF
