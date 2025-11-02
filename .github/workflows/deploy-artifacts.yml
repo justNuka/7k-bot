@@ -61,8 +61,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: dashboard/package-lock.json
       
-      - name: �🔨 Build dashboard
+      - name:  Build dashboard
         working-directory: dashboard
+        env:
+          SQLITE_PATH: "/tmp/dummy.db"
+          NEXTAUTH_SECRET: "dummy-secret-for-build"
+          NEXTAUTH_URL: "http://localhost:3000"
         run: |
           npm ci
           npm run build
