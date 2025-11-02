@@ -61,13 +61,21 @@ jobs:
           cache: 'npm'
           cache-dependency-path: dashboard/package-lock.json
       
-      - name:  Build dashboard
+      - name: 🔨 Build dashboard
         working-directory: dashboard
-        env:
-          SQLITE_PATH: "/tmp/dummy.db"
-          NEXTAUTH_SECRET: "dummy-secret-for-build"
-          NEXTAUTH_URL: "http://localhost:3000"
         run: |
+          # Créer un .env temporaire avec les variables nécessaires au build
+          echo "SQLITE_PATH=/tmp/dummy.db" > .env
+          echo "NEXTAUTH_SECRET=dummy-secret-for-build" >> .env
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env
+          echo "BOT_API_URL=http://localhost:8787" >> .env
+          echo "DISCORD_CLIENT_ID=dummy" >> .env
+          echo "DISCORD_CLIENT_SECRET=dummy" >> .env
+          
+          # Créer une DB SQLite vide
+          mkdir -p /tmp
+          touch /tmp/dummy.db
+          
           npm ci
           npm run build
       
