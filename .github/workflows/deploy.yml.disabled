@@ -63,4 +63,4 @@ jobs:
       #       **Commit:** `${{ github.event.head_commit.id }}`
       #       **Message:** ${{ github.event.head_commit.message }}
       #       **Logs:** [Voir les logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          color: 0xED4245
+      #    color: 0xED4245
