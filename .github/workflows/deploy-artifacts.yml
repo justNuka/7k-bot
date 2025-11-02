@@ -20,14 +20,11 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
       
-      - name: 📦 Setup Node.js
+      - name: 📦 Setup Node.js (bot)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            ../7k-bot-dashboard/package-lock.json
       
       # ========================================
       # BUILD BOT (TypeScript + prod node_modules)
@@ -57,7 +54,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: dashboard
       
-      - name: 🔨 Build dashboard
+      - name: � Setup Node.js (dashboard)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      
+      - name: �🔨 Build dashboard
         working-directory: dashboard
         run: |
           npm ci
