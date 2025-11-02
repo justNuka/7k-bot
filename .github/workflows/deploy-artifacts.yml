@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: justNuka/7k-bot-dashboard
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_ACCESS_DASHBOARD }}
           path: dashboard
       
       - name: � Setup Node.js (dashboard)
