@@ -207,3 +207,18 @@ CREATE TABLE IF NOT EXISTS bug_reports (
 CREATE INDEX IF NOT EXISTS idx_bug_status ON bug_reports(status);
 CREATE INDEX IF NOT EXISTS idx_bug_created ON bug_reports(created_at);
 CREATE INDEX IF NOT EXISTS idx_bug_user ON bug_reports(user_id);
+
+-- Historique des modifications (audit log) pour le dashboard
+CREATE TABLE IF NOT EXISTS audit_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name    TEXT NOT NULL,                    -- 'notifs', 'absences', 'banners', etc.
+  record_id     TEXT NOT NULL,                    -- ID de l'enregistrement modifié
+  action        TEXT NOT NULL,                    -- 'create' | 'update' | 'delete'
+  user_email    TEXT NOT NULL,                    -- email de l'utilisateur (via NextAuth)
+  changes       TEXT,                             -- JSON avec les changements (pour update)
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))  -- timestamp ISO
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_table ON audit_log(table_name);
+CREATE INDEX IF NOT EXISTS idx_audit_record ON audit_log(record_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
