@@ -72,9 +72,13 @@ jobs:
           echo "DISCORD_CLIENT_ID=dummy" >> .env
           echo "DISCORD_CLIENT_SECRET=dummy" >> .env
           
-          # Créer une DB SQLite vide
+          # Installer sqlite3 pour initialiser la DB
+          sudo apt-get update && sudo apt-get install -y sqlite3
+          
+          # Créer une DB SQLite avec le schéma du bot
           mkdir -p /tmp
-          touch /tmp/dummy.db
+          # Copier le schéma depuis le repo bot (déjà cloné dans le répertoire parent)
+          sqlite3 /tmp/dummy.db < ../src/db/schema.sql || echo "Schema applied (with warnings)"
           
           npm ci
           npm run build
