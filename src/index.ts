@@ -82,6 +82,7 @@ async function main() {
   // Event: Bot prêt
   client.once('clientReady', async () => {
     log.info({ tag: client.user?.tag, id: client.user?.id }, 'Bot connecté');
+    log.info({ version: process.env.BOT_VERSION || 'dev' }, '🚀 Version du bot');
 
     // Migrations DB
     runMigrations();
