@@ -388,6 +388,46 @@ export async function startHttpServer(client: Client) {
   // --- routes logs (SSE + liste) ---
   await registerLogRoutes(app);
 
+  // --- route restart bot ---
+  app.post('/admin/restart', async (req, res) => {
+    try {
+      const { triggered_by, timestamp } = req.body as { triggered_by?: string; timestamp?: string };
+      
+      pushLog({
+        ts: new Date().toISOString(),
+        level: 'action',
+        component: 'admin',
+        msg: `[RESTART] Bot restart triggered by ${triggered_by || 'unknown'}`,
+        meta: { timestamp, triggered_by }
+      });
+
+      log.warn({ triggered_by, timestamp }, '[ADMIN] Bot restart requested');
+
+      // Répondre immédiatement avant de quitter
+      res.send({
+        success: true,
+        message: 'Bot will restart in 2 seconds',
+        triggered_by,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Quitter proprement après 2 secondes (permet à la réponse d'être envoyée)
+      setTimeout(() => {
+        log.info('[ADMIN] Exiting for restart...');
+        pushLog({
+          ts: new Date().toISOString(),
+          level: 'action',
+          msg: '[RESTART] Bot exiting for restart'
+        });
+        process.exit(0); // PM2 ou systemd va automatiquement redémarrer
+      }, 2000);
+
+    } catch (error) {
+      log.error({ error }, '[ADMIN] Restart failed');
+      res.code(500).send({ error: 'Restart failed', details: (error as Error).message });
+    }
+  });
+
   // --- démarrage ---
   const port = Number(process.env.DASH_PORT ?? 8787);
   const host = process.env.DASH_HOST ?? '127.0.0.1'; // localhost only for AlwaysData
