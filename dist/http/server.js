@@ -346,7 +346,7 @@ export async function startHttpServer(client) {
     });
     // --- démarrage ---
     const port = Number(process.env.DASH_PORT ?? 8787);
-    const host = process.env.DASH_HOST ?? '127.0.0.1'; // localhost only for AlwaysData
+    const host = process.env.DASH_HOST ?? '0.0.0.0'; // Listen on all interfaces (localhost accessible)
     app.listen({ port, host })
         .then(() => {
         log.info({ port, host }, '[DASH] HTTP up');
