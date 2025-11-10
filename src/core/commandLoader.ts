@@ -61,7 +61,6 @@ export async function loadCommands(): Promise<Map<string, CommandModule>> {
     'coaching': await import('../commands/coaching.js'),
     'changelog': await import('../commands/changelog.js'),
     'pingoff': await import('../commands/pingoff.js'),
-    'annoncespannel': await import('../commands/annoncespanel.js'),
   };
 
   // Construire la Map
