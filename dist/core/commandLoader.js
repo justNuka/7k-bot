@@ -9,6 +9,8 @@
  *
  * @module core/commandLoader
  */
+import { createLogger } from '../utils/logger.js';
+const log = createLogger('CommandLoader');
 /**
  * Charge toutes les commandes depuis src/commands/
  *
@@ -62,5 +64,8 @@ export async function loadCommands() {
     for (const [name, mod] of Object.entries(commands)) {
         commandMap.set(name, mod);
     }
+    // Log des commandes chargées
+    const commandNames = Array.from(commandMap.keys()).sort();
+    log.info({ count: commandNames.length, commands: commandNames }, ` ${commandNames.length} commandes charg�es`);
     return commandMap;
 }
