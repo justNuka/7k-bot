@@ -47,6 +47,7 @@ export async function loadCommands(): Promise<Map<string, CommandModule>> {
     'low-score': await import('../commands/low-score.js'),
     'notif': await import('../commands/notif.js'),
     'notifpanel': await import('../commands/notifpanel.js'),
+    'annoncespanel': await import('../commands/annoncespanel.js'),
     'banniere': await import('../commands/banniere.js'),
     'roleset': await import('../commands/roleset.js'),
     'scrape': await import('../commands/scrape.js'),
@@ -60,6 +61,7 @@ export async function loadCommands(): Promise<Map<string, CommandModule>> {
     'coaching': await import('../commands/coaching.js'),
     'changelog': await import('../commands/changelog.js'),
     'pingoff': await import('../commands/pingoff.js'),
+    'annoncespannel': await import('../commands/annoncespanel.js'),
   };
 
   // Construire la Map
