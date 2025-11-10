@@ -59,6 +59,21 @@ export async function scrapeOnceAndNotify(client: any) {
       const list = await fetchCategoryList(cat, lastId || undefined);
       const known = new Set(seenByCategory[cat] || []);
       
+      // Logger le dernier article trouvé (le plus récent)
+      if (list.length > 0) {
+        const latest = list[0]; // Premier élément = plus récent
+        log.info({ 
+          category: cat, 
+          categoryLabel: catLabel(cat),
+          latestId: latest.id, 
+          latestTitle: latest.title,
+          latestUrl: latest.url,
+          totalFound: list.length 
+        }, `📊 ${catLabel(cat)}: dernier article #${latest.id}`);
+      } else {
+        log.info({ category: cat, categoryLabel: catLabel(cat) }, `📊 ${catLabel(cat)}: aucun article trouvé`);
+      }
+      
       // du plus récent au plus ancien
       for (const it of list) {
         if (!known.has(it.id)) {
