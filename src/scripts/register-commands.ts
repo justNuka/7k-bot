@@ -8,6 +8,7 @@ import { data as oubliCr } from '../commands/oubli-cr.js';
 import { data as lowScore } from '../commands/low-score.js';
 import { data as notif } from '../commands/notif.js';
 import { data as notifpanel } from '../commands/notifpanel.js';
+import { data as annoncespanel } from '../commands/annoncespanel.js';
 import { data as banniere } from '../commands/banniere.js';
 import { data as roleset } from '../commands/roleset.js';
 import { data as scrape } from '../commands/scrape.js';
@@ -34,7 +35,8 @@ const commands = [
   oubliCr, 
   lowScore, 
   notif, 
-  notifpanel, 
+  notifpanel,
+  annoncespanel, 
   banniere, 
   roleset, 
   scrape, 
@@ -67,3 +69,4 @@ const rest = new REST({ version: '10' }).setToken(token);
     process.exit(1);
   }
 })();
+
