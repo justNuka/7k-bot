@@ -27,6 +27,25 @@ export function getLastKnownId(category) {
     return row?.max_id || null;
 }
 /**
+ * Vérifie si la synchronisation initiale est complète
+ */
+export function isInitialSyncDone() {
+    const row = db.prepare(`
+    SELECT value FROM netmarble_meta WHERE key = 'initial_sync_done'
+  `).get();
+    return row?.value === 'true';
+}
+/**
+ * Marque la synchronisation initiale comme complète
+ */
+export function markInitialSyncDone() {
+    db.prepare(`
+    INSERT OR REPLACE INTO netmarble_meta (key, value)
+    VALUES ('initial_sync_done', 'true')
+  `).run();
+    log.info('Synchronisation initiale Netmarble marquée comme complète');
+}
+/**
  * Récupère tous les IDs déjà vus pour toutes les catégories
  */
 export function getAllSeenIds() {

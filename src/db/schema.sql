@@ -189,6 +189,12 @@ CREATE TABLE IF NOT EXISTS netmarble_articles (
 CREATE INDEX IF NOT EXISTS idx_netmarble_category ON netmarble_articles(category);
 CREATE INDEX IF NOT EXISTS idx_netmarble_seen_at ON netmarble_articles(seen_at);
 
+-- Métadonnées scraping Netmarble (sync initiale, etc.)
+CREATE TABLE IF NOT EXISTS netmarble_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- Signalements de bugs
 CREATE TABLE IF NOT EXISTS bug_reports (
   id            TEXT PRIMARY KEY,                 -- ex: bug_20251101_123456_abcd

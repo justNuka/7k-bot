@@ -30,8 +30,13 @@ export async function scrapeOnceAndNotify(client) {
         log.warn('Pas de canal configuré pour le scraping');
         return;
     }
-    // Import dynamique pour accéder à getLastKnownId
-    const { getAllSeenIds, getLastKnownId, addArticles, cleanupOldArticles } = await import('../db/netmarble.js');
+    // Import dynamique pour accéder aux fonctions DB
+    const { getAllSeenIds, getLastKnownId, addArticles, cleanupOldArticles, isInitialSyncDone, markInitialSyncDone } = await import('../db/netmarble.js');
+    // Vérifier si c'est la première synchronisation
+    const isFirstRun = !isInitialSyncDone();
+    if (isFirstRun) {
+        log.info('🔄 Première synchronisation Netmarble - aucune notification ne sera envoyée');
+    }
     // Récupérer les IDs déjà vus depuis la DB
     const seenByCategory = getAllSeenIds();
     const newPosts = [];
@@ -60,11 +65,22 @@ export async function scrapeOnceAndNotify(client) {
         log.info('Aucun nouveau post Netmarble');
         // Nettoyage périodique (garde les 200 derniers par catégorie)
         cleanupOldArticles();
+        // Si c'était le premier run, on le marque comme fait même s'il n'y avait rien
+        if (isFirstRun) {
+            markInitialSyncDone();
+        }
         return;
     }
     // Sauvegarder les nouveaux articles en DB (batch insert)
     addArticles(articlesToAdd);
-    // Poste un embed stylisé pour chaque nouveau post
+    // Si c'est le premier run, on enregistre les articles mais on ne notifie pas
+    if (isFirstRun) {
+        log.info({ count: newPosts.length }, '✅ Synchronisation initiale terminée - articles enregistrés sans notification');
+        markInitialSyncDone();
+        cleanupOldArticles();
+        return;
+    }
+    // Poste un embed stylisé pour chaque nouveau post (seulement après le premier run)
     for (const p of newPosts) {
         try {
             const emoji = catEmoji(p.cat);
