@@ -345,8 +345,10 @@ export async function startHttpServer(client) {
         }
     });
     // --- démarrage ---
-    const port = Number(process.env.DASH_PORT ?? 8787);
-    const host = process.env.DASH_HOST ?? '0.0.0.0'; // Listen on all interfaces (localhost accessible)
+    // Support pour SERVICE_PORT (AlwaysData) ou DASH_PORT (dev local)
+    const port = Number(process.env.SERVICE_PORT ?? process.env.DASH_PORT ?? 8342);
+    // IPv6 (::) pour AlwaysData, 0.0.0.0 pour dev local
+    const host = process.env.DASH_HOST ?? '::';
     app.listen({ port, host })
         .then(() => {
         log.info({ port, host }, '[DASH] HTTP up');
