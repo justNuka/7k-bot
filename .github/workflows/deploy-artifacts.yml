@@ -1,4 +1,4 @@
-ï»¿name: Build & Deploy to AlwaysData
+name: Build & Deploy to AlwaysData
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     name: Build artifacts & Deploy
     runs-on: ubuntu-latest
     
-    # Ne dÃ©ployer que si [deploy] est dans le message de commit OU dÃ©clenchement manuel
+    # Ne déployer que si [deploy] est dans le message de commit OU déclenchement manuel
     if: contains(github.event.head_commit.message, '[deploy]') || github.event_name == 'workflow_dispatch'
     
     steps:
@@ -98,7 +98,7 @@ jobs:
           echo " Restarting bot service (ID: $SERVICE_ID)..."
           
           curl -X POST \
-            -u "$ACCOUNT:$API_KEY" \
+            --user "$API_KEY account=$ACCOUNT:" \
             "https://api.alwaysdata.com/v1/service/$SERVICE_ID/restart/" \
             -H "Content-Type: application/json"
           
