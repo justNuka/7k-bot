@@ -1,4 +1,4 @@
-name: Build & Deploy to AlwaysData
+﻿name: Build & Deploy to AlwaysData
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
     if: contains(github.event.head_commit.message, '[deploy]') || github.event_name == 'workflow_dispatch'
     
     steps:
-      - name: 📥 Checkout code
+      - name:  Checkout code
         uses: actions/checkout@v4
       
-      - name: 📦 Setup Node.js (bot)
+      - name:  Setup Node.js (bot)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -30,14 +30,14 @@ jobs:
       # ========================================
       # BUILD BOT (TypeScript + prod node_modules)
       # ========================================
-      - name: 🔨 Build bot
+      - name:  Build bot
         working-directory: .
         run: |
           npm ci
           npm run build
           npm prune --omit=dev
       
-      - name: 📦 Pack bot artifacts
+      - name:  Pack bot artifacts
         run: |
           tar -czf bot-artifacts.tar.gz \
             dist/ \
@@ -48,27 +48,27 @@ jobs:
       # ========================================
       # DEPLOY TO ALWAYSDATA
       # ========================================
-      - name: 🔑 Setup SSH
+      - name:  Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.ALWAYSDATA_SSH_KEY }}
       
-      - name: 🌐 Add AlwaysData to known_hosts
+      - name:  Add AlwaysData to known_hosts
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.ALWAYSDATA_HOST }} >> ~/.ssh/known_hosts
       
-      - name: 📤 Upload artifacts to AlwaysData
+      - name:  Upload artifacts to AlwaysData
         run: |
           scp bot-artifacts.tar.gz \
             ${{ secrets.ALWAYSDATA_USER }}@${{ secrets.ALWAYSDATA_HOST }}:~/
       
-      - name: 🚀 Deploy & restart on AlwaysData
+      - name:  Deploy on AlwaysData
         run: |
           ssh ${{ secrets.ALWAYSDATA_USER }}@${{ secrets.ALWAYSDATA_HOST }} << 'EOF'
             set -e
             
-            echo "📦 Deploying bot artifacts..."
+            echo " Deploying bot artifacts..."
             mkdir -p ~/apps/7k-bot
             
             # Backup .env if exists
@@ -81,14 +81,25 @@ jobs:
             # Restore .env
             [ -f ~/apps/7k-bot/.env.bak ] && mv ~/apps/7k-bot/.env.bak ~/apps/7k-bot/.env
             
-            echo "� Restarting bot..."
-            # Si PM2 est installé, redémarrer
-            if command -v pm2 &> /dev/null; then
-              pm2 restart 7k-bot || pm2 start dist/index.js --name 7k-bot
-              pm2 save
-            else
-              echo "⚠️ PM2 not installed, manual restart required via AlwaysData UI"
-            fi
+            echo " Registering Discord slash commands..."
+            cd ~/apps/7k-bot
+            npm run register:prod || echo " Command registration failed (non-blocking)"
             
-            echo "✅ Bot deployed successfully!"
+            echo " Bot artifacts deployed!"
           EOF
+      
+      # Restart du service via l'API AlwaysData
+      - name:  Restart bot service
+        run: |
+          SERVICE_ID="${{ secrets.ALWAYSDATA_SERVICE_ID }}"
+          API_KEY="${{ secrets.ALWAYSDATA_API_KEY }}"
+          ACCOUNT="${{ secrets.ALWAYSDATA_ACCOUNT }}"
+          
+          echo " Restarting bot service (ID: $SERVICE_ID)..."
+          
+          curl -X POST \
+            -u "$ACCOUNT:$API_KEY" \
+            "https://api.alwaysdata.com/v1/service/$SERVICE_ID/restart/" \
+            -H "Content-Type: application/json"
+          
+          echo " Bot service restarted!"
