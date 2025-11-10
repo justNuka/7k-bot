@@ -78,9 +78,12 @@ RESET_CRON_TZ="Europe/Paris"
 
 ### Fréquence recommandée
 
-- **Production** : `0 * * * *` (toutes les heures - défaut)
+- **Production** : `*/30 * * * *` (toutes les 30 minutes - **recommandé**)
+- **Surveillance normale** : `0 * * * *` (toutes les heures)
 - **Test** : `*/5 * * * *` (toutes les 5 minutes)
-- **Surveillance accrue** : `*/30 * * * *` (toutes les 30 minutes)
+
+> **Note** : 30 minutes est un excellent compromis entre réactivité et respect des serveurs Netmarble.
+> Le forum publie rarement plus d'un post par heure, donc 30min garantit une détection rapide sans surcharger.
 
 ## 🎮 Commandes
 

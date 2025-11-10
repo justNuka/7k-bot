@@ -3,7 +3,7 @@ import { EmbedBuilder } from 'discord.js';
 import { fetchCategoryList, NmCategoryKey } from '../scrapers/netmarble.js';
 import { getAllSeenIds, addArticles, cleanupOldArticles } from '../db/netmarble.js';
 import { sendToChannel } from '../utils/discord/send.js';
-import { CHANNEL_IDS } from '../config/permissions.js';
+import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('ScrapeNetmarble');
@@ -75,6 +75,11 @@ export async function scrapeOnceAndNotify(client: any) {
       const label = catLabel(p.cat);
       const color = catColor(p.cat);
       
+      // Ping le rôle seulement pour devnotes et updates
+      const shouldPing = p.cat === 'devnotes' || p.cat === 'updates';
+      const roleId = ROLE_IDS.NOTIF_ANNONCES_JEU;
+      const content = shouldPing && roleId ? `<@&${roleId}>` : undefined;
+      
       const emb = new EmbedBuilder()
         .setColor(color)
         .setTitle(`${emoji} **${label}** — Nouveau post`)
@@ -83,12 +88,13 @@ export async function scrapeOnceAndNotify(client: any) {
         .setFooter({ text: `Catégorie: ${label} • Seven Knights Re:BIRTH` })
         .setTimestamp(new Date());
       
-      await sendToChannel(client, channelId, { embeds: [emb] });
+      await sendToChannel(client, channelId, { content, embeds: [emb] });
       
       log.info({ 
         category: p.cat, 
         id: p.id, 
-        url: p.url 
+        url: p.url,
+        pinged: shouldPing 
       }, `Notification envoyée: ${label} #${p.id}`);
       
     } catch (e) {

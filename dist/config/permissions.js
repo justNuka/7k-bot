@@ -6,6 +6,7 @@ export const ROLE_IDS = {
     NOTIF_CR: process.env.ROLE_NOTIF_CR_ID,
     NOTIF_DAILY: process.env.ROLE_NOTIF_DAILY_ID,
     NOTIF_GVG: process.env.ROLE_NOTIF_GVG_ID,
+    NOTIF_ANNONCES_JEU: process.env.ROLE_NOTIF_ANNONCES_JEU_ID,
 };
 export const CHANNEL_IDS = {
     INFOS_ANNONCES_JEU: process.env.INFOS_ANNONCES_JEU_CHANNEL_ID,

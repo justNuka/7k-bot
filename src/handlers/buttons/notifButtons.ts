@@ -20,13 +20,14 @@ const log = createLogger('NotifButtons');
 /**
  * Résout l'ID de rôle correspondant à un type de notification
  * 
- * @param key Type de notification (cr, daily, gvg)
+ * @param key Type de notification (cr, daily, gvg, annonces)
  * @returns ID du rôle Discord correspondant
  */
-function roleFromKey(key: 'cr'|'daily'|'gvg'): string {
+function roleFromKey(key: 'cr'|'daily'|'gvg'|'annonces'): string {
   return key === 'cr' ? ROLE_IDS.NOTIF_CR
     : key === 'daily' ? ROLE_IDS.NOTIF_DAILY
-    : ROLE_IDS.NOTIF_GVG;
+    : key === 'gvg' ? ROLE_IDS.NOTIF_GVG
+    : ROLE_IDS.NOTIF_ANNONCES_JEU;
 }
 
 /**
@@ -43,10 +44,10 @@ export async function handleNotifButton(i: ButtonInteraction) {
       return i.reply({ content: 'Cette action doit être faite depuis le serveur.', ephemeral: true });
     }
 
-    const m = /^notif:toggle:(cr|daily|gvg)$/.exec(i.customId);
+    const m = /^notif:toggle:(cr|daily|gvg|annonces)$/.exec(i.customId);
     if (!m) return; // pas pour nous
 
-    const key = m[1] as 'cr'|'daily'|'gvg';
+    const key = m[1] as 'cr'|'daily'|'gvg'|'annonces';
     const roleId = roleFromKey(key);
     if (!roleId) {
       return i.reply({ content: 'Rôle de rappel non configuré.', ephemeral: true });
