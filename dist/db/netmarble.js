@@ -27,23 +27,54 @@ export function getLastKnownId(category) {
     return row?.max_id || null;
 }
 /**
+ * Crée la table netmarble_meta si elle n'existe pas (migration legacy)
+ */
+function ensureMetaTableExists() {
+    try {
+        db.prepare(`
+      CREATE TABLE IF NOT EXISTS netmarble_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `).run();
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur création table netmarble_meta');
+    }
+}
+/**
  * Vérifie si la synchronisation initiale est complète
  */
 export function isInitialSyncDone() {
-    const row = db.prepare(`
-    SELECT value FROM netmarble_meta WHERE key = 'initial_sync_done'
-  `).get();
-    return row?.value === 'true';
+    // S'assurer que la table existe (pour les DB legacy)
+    ensureMetaTableExists();
+    try {
+        const row = db.prepare(`
+      SELECT value FROM netmarble_meta WHERE key = 'initial_sync_done'
+    `).get();
+        return row?.value === 'true';
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur vérification initial_sync_done');
+        return false; // Considérer comme non fait en cas d'erreur
+    }
 }
 /**
  * Marque la synchronisation initiale comme complète
  */
 export function markInitialSyncDone() {
-    db.prepare(`
-    INSERT OR REPLACE INTO netmarble_meta (key, value)
-    VALUES ('initial_sync_done', 'true')
-  `).run();
-    log.info('Synchronisation initiale Netmarble marquée comme complète');
+    // S'assurer que la table existe
+    ensureMetaTableExists();
+    try {
+        db.prepare(`
+      INSERT OR REPLACE INTO netmarble_meta (key, value)
+      VALUES ('initial_sync_done', 'true')
+    `).run();
+        log.info('Synchronisation initiale Netmarble marquée comme complète');
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur marquage initial_sync_done');
+    }
 }
 /**
  * Récupère tous les IDs déjà vus pour toutes les catégories
