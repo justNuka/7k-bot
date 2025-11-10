@@ -28,6 +28,19 @@ export function getSeenIds(category: NmCategoryKey): string[] {
 }
 
 /**
+ * Récupère le dernier ID connu pour une catégorie (le plus grand numériquement)
+ */
+export function getLastKnownId(category: NmCategoryKey): number | null {
+  const row = db.prepare(`
+    SELECT MAX(CAST(id AS INTEGER)) as max_id
+    FROM netmarble_articles
+    WHERE category = ?
+  `).get(category) as { max_id: number | null };
+  
+  return row?.max_id || null;
+}
+
+/**
  * Récupère tous les IDs déjà vus pour toutes les catégories
  */
 export function getAllSeenIds(): Record<NmCategoryKey, string[]> {

@@ -1,7 +1,6 @@
 import cron from 'node-cron';
 import { EmbedBuilder } from 'discord.js';
 import { fetchCategoryList } from '../scrapers/netmarble.js';
-import { getAllSeenIds, addArticles, cleanupOldArticles } from '../db/netmarble.js';
 import { sendToChannel } from '../utils/discord/send.js';
 import { CHANNEL_IDS, ROLE_IDS } from '../config/permissions.js';
 import { createLogger } from '../utils/logger.js';
@@ -31,13 +30,18 @@ export async function scrapeOnceAndNotify(client) {
         log.warn('Pas de canal configuré pour le scraping');
         return;
     }
+    // Import dynamique pour accéder à getLastKnownId
+    const { getAllSeenIds, getLastKnownId, addArticles, cleanupOldArticles } = await import('../db/netmarble.js');
     // Récupérer les IDs déjà vus depuis la DB
     const seenByCategory = getAllSeenIds();
     const newPosts = [];
     const articlesToAdd = [];
     for (const cat of CATS) {
         try {
-            const list = await fetchCategoryList(cat);
+            // Récupérer le dernier ID connu pour optimiser la recherche
+            const lastId = getLastKnownId(cat);
+            log.debug({ category: cat, lastKnownId: lastId }, `Scraping ${cat} depuis ID ${lastId || 'début'}`);
+            const list = await fetchCategoryList(cat, lastId || undefined);
             const known = new Set(seenByCategory[cat] || []);
             // du plus récent au plus ancien
             for (const it of list) {

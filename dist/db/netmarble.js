@@ -16,6 +16,17 @@ export function getSeenIds(category) {
     return rows.map(r => r.id);
 }
 /**
+ * Récupère le dernier ID connu pour une catégorie (le plus grand numériquement)
+ */
+export function getLastKnownId(category) {
+    const row = db.prepare(`
+    SELECT MAX(CAST(id AS INTEGER)) as max_id
+    FROM netmarble_articles
+    WHERE category = ?
+  `).get(category);
+    return row?.max_id || null;
+}
+/**
  * Récupère tous les IDs déjà vus pour toutes les catégories
  */
 export function getAllSeenIds() {
