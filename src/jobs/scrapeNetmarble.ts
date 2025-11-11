@@ -31,8 +31,8 @@ function catColor(cat: NmCategoryKey): number {
 }
 
 /**
- * Republier les articles qui n'ont pas été envoyés avec succès
- * Appelé au démarrage du bot pour rattraper les notifications manquées
+ * Publier le dernier article de chaque catégorie et marquer tous les anciens comme envoyés
+ * Appelé au démarrage du bot pour rattraper les notifications manquées SANS spam
  */
 export async function retryUnsentArticles(client: any) {
   const channelId = CHANNEL_IDS.INFOS_ANNONCES_JEU || CHANNEL_IDS.RETOURS_BOT;
@@ -41,25 +41,37 @@ export async function retryUnsentArticles(client: any) {
     return; 
   }
 
-  const { getUnsentArticles, countUnsentArticles, markArticleAsSent } = await import('../db/netmarble.js');
+  const { getLatestArticlePerCategory, markOldArticlesAsSent, markArticleAsSent, countUnsentArticles } = 
+    await import('../db/netmarble.js');
   
   const totalUnsent = countUnsentArticles();
-  const limit = 5;
-  const unsentArticles = getUnsentArticles(limit);
-
+  
   if (totalUnsent === 0) {
     log.info('Aucun article non envoyé à republier');
     return;
   }
 
-  const skipped = Math.max(0, totalUnsent - limit);
-  log.info({ 
-    total: totalUnsent, 
-    toRetry: unsentArticles.length,
-    skipped 
-  }, `📬 Republication de ${unsentArticles.length}/${totalUnsent} articles non envoyés${skipped > 0 ? ` (${skipped} ignorés)` : ''}`);
+  // 1. Marquer tous les anciens articles comme envoyés (sauf le dernier de chaque catégorie)
+  const markedCount = markOldArticlesAsSent();
+  log.info({ marked: markedCount }, `✅ ${markedCount} anciens articles marqués comme envoyés (nettoyage du backlog)`);
 
-  for (const article of unsentArticles) {
+  // 2. Récupérer le dernier article de chaque catégorie (même déjà envoyé)
+  const latestArticles = getLatestArticlePerCategory();
+  
+  // 3. Filtrer pour ne garder que ceux non envoyés
+  const toSend = latestArticles.filter(a => !a.sent_at);
+  
+  if (toSend.length === 0) {
+    log.info('Tous les derniers articles ont déjà été envoyés');
+    return;
+  }
+
+  log.info({ 
+    toSend: toSend.length,
+    categories: toSend.map(a => a.category)
+  }, `📬 Republication du dernier article de ${toSend.length} catégorie(s)`);
+
+  for (const article of toSend) {
     try {
       const cat = article.category as NmCategoryKey;
       const emoji = catEmoji(cat);
@@ -133,7 +145,7 @@ export async function retryUnsentArticles(client: any) {
     }
   }
 
-  log.info({ count: unsentArticles.length }, '✅ Republication terminée');
+  log.info({ count: toSend.length }, '✅ Republication terminée');
 }
 
 export async function scrapeOnceAndNotify(client: any) {

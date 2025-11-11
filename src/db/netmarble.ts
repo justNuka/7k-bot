@@ -211,36 +211,68 @@ export function markArticleAsSent(category: NmCategoryKey, id: string): void {
 }
 
 /**
- * Récupère tous les articles non envoyés (sent_at IS NULL)
- * Limite à 5 articles maximum pour éviter le spam au redémarrage
+ * Récupère le dernier article de chaque catégorie (peu importe sent_at)
+ * Utilisé pour la republication initiale au démarrage
  */
-export function getUnsentArticles(limit = 5): Array<{
+export function getLatestArticlePerCategory(): Array<{
   id: string;
   category: NmCategoryKey;
   url: string;
   seen_at: string;
+  sent_at: string | null;
 }> {
   // S'assurer que la colonne sent_at existe
   ensureSentAtColumnExists();
   
   try {
+    // Récupère le dernier article (seen_at le plus récent) de chaque catégorie
     const rows = db.prepare(`
-      SELECT id, category, url, seen_at
+      SELECT id, category, url, seen_at, sent_at
       FROM netmarble_articles
-      WHERE sent_at IS NULL
-      ORDER BY seen_at DESC
-      LIMIT ?
-    `).all(limit) as Array<{
+      WHERE (category, seen_at) IN (
+        SELECT category, MAX(seen_at)
+        FROM netmarble_articles
+        GROUP BY category
+      )
+      ORDER BY category
+    `).all() as Array<{
       id: string;
       category: NmCategoryKey;
       url: string;
       seen_at: string;
+      sent_at: string | null;
     }>;
     
     return rows;
   } catch (e) {
-    log.error({ error: e }, 'Erreur récupération articles non envoyés');
+    log.error({ error: e }, 'Erreur récupération derniers articles par catégorie');
     return [];
+  }
+}
+
+/**
+ * Marque tous les articles (sauf les plus récents de chaque catégorie) comme envoyés
+ * Utilisé pour nettoyer le backlog sans spam
+ */
+export function markOldArticlesAsSent(): number {
+  ensureSentAtColumnExists();
+  
+  try {
+    const result = db.prepare(`
+      UPDATE netmarble_articles
+      SET sent_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE sent_at IS NULL
+        AND (category, seen_at) NOT IN (
+          SELECT category, MAX(seen_at)
+          FROM netmarble_articles
+          GROUP BY category
+        )
+    `).run();
+    
+    return result.changes;
+  } catch (e) {
+    log.error({ error: e }, 'Erreur marquage articles anciens');
+    return 0;
   }
 }
 
