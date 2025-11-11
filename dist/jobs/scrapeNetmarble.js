@@ -24,6 +24,86 @@ function catColor(cat) {
             : cat === 'known' ? 0xFEE75C // Jaune
                 : 0xEB459E; // Rose
 }
+/**
+ * Republier les articles qui n'ont pas été envoyés avec succès
+ * Appelé au démarrage du bot pour rattraper les notifications manquées
+ */
+export async function retryUnsentArticles(client) {
+    const channelId = CHANNEL_IDS.INFOS_ANNONCES_JEU || CHANNEL_IDS.RETOURS_BOT;
+    if (!channelId) {
+        log.warn('Pas de canal configuré pour republier les articles non envoyés');
+        return;
+    }
+    const { getUnsentArticles, markArticleAsSent } = await import('../db/netmarble.js');
+    const unsentArticles = getUnsentArticles();
+    if (unsentArticles.length === 0) {
+        log.info('Aucun article non envoyé à republier');
+        return;
+    }
+    log.info({ count: unsentArticles.length }, `📬 Republication de ${unsentArticles.length} articles non envoyés`);
+    for (const article of unsentArticles) {
+        try {
+            const cat = article.category;
+            const emoji = catEmoji(cat);
+            const label = catLabel(cat);
+            const color = catColor(cat);
+            // Ping le rôle seulement pour devnotes et updates
+            const shouldPing = cat === 'devnotes' || cat === 'updates';
+            const roleId = ROLE_IDS.NOTIF_ANNONCES_JEU;
+            const content = shouldPing && roleId ? `<@&${roleId}>` : undefined;
+            // Date de découverte formatée
+            const seenDate = new Date(article.seen_at);
+            const dateStr = seenDate.toLocaleString('fr-FR', {
+                dateStyle: 'short',
+                timeStyle: 'short',
+                timeZone: 'Europe/Paris'
+            });
+            const emb = new EmbedBuilder()
+                .setColor(color)
+                .setTitle(`${emoji} Nouveau post #${article.id}`)
+                .setURL(article.url)
+                .setDescription(`**Catégorie:** ${label}\n\n` +
+                `Un nouveau post a été publié sur le forum officiel de Seven Knights Re:BIRTH.\n\n` +
+                `**[📖 Cliquez ici pour lire l'article complet →](${article.url})**`)
+                .addFields({
+                name: '🔗 Lien direct',
+                value: `[${article.url}](${article.url})`,
+                inline: false
+            }, {
+                name: '📅 Découvert le',
+                value: dateStr,
+                inline: true
+            })
+                .setFooter({
+                text: `${label} • Seven Knights Re:BIRTH • Republication automatique`,
+                iconURL: 'https://sgimage.netmarble.com/images/netmarble/tskgb/20250908/vqew1757311454668.png'
+            })
+                .setTimestamp(seenDate);
+            await sendToChannel(client, channelId, { content, embeds: [emb] });
+            // Marquer comme envoyé
+            markArticleAsSent(cat, article.id);
+            log.info({
+                category: cat,
+                id: article.id,
+                url: article.url,
+                seenAt: article.seen_at,
+                pinged: shouldPing
+            }, `Article republié: ${label} #${article.id}`);
+            // Petit délai entre chaque envoi pour éviter le rate limit
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        catch (e) {
+            const err = e;
+            log.error({
+                category: article.category,
+                id: article.id,
+                url: article.url,
+                error: err.message
+            }, 'Erreur republication article');
+        }
+    }
+    log.info({ count: unsentArticles.length }, '✅ Republication terminée');
+}
 export async function scrapeOnceAndNotify(client) {
     const channelId = CHANNEL_IDS.INFOS_ANNONCES_JEU || CHANNEL_IDS.RETOURS_BOT; // fallback si pas de canal dédié
     if (!channelId) {
@@ -123,6 +203,9 @@ export async function scrapeOnceAndNotify(client) {
             })
                 .setTimestamp(new Date());
             await sendToChannel(client, channelId, { content, embeds: [emb] });
+            // Marquer l'article comme envoyé avec succès
+            const { markArticleAsSent } = await import('../db/netmarble.js');
+            markArticleAsSent(p.cat, p.id);
             log.info({
                 category: p.cat,
                 id: p.id,
@@ -133,9 +216,12 @@ export async function scrapeOnceAndNotify(client) {
         catch (e) {
             const err = e;
             log.error({
+                category: p.cat,
+                id: p.id,
                 url: p.url,
                 error: err.message
             }, 'Erreur envoi notification');
+            // Ne pas marquer comme envoyé en cas d'erreur
         }
     }
     log.info({ count: newPosts.length }, 'Posts Netmarble publiés');

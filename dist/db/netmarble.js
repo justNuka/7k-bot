@@ -43,6 +43,24 @@ function ensureMetaTableExists() {
     }
 }
 /**
+ * Ajoute la colonne sent_at si elle n'existe pas (migration legacy)
+ */
+function ensureSentAtColumnExists() {
+    try {
+        // Vérifier si la colonne existe déjà
+        const tableInfo = db.prepare('PRAGMA table_info(netmarble_articles)').all();
+        const hasSentAt = tableInfo.some(col => col.name === 'sent_at');
+        if (!hasSentAt) {
+            db.prepare('ALTER TABLE netmarble_articles ADD COLUMN sent_at TEXT').run();
+            db.prepare('CREATE INDEX IF NOT EXISTS idx_netmarble_sent_at ON netmarble_articles(sent_at)').run();
+            log.info('Colonne sent_at ajoutée à netmarble_articles');
+        }
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur ajout colonne sent_at');
+    }
+}
+/**
  * Vérifie si la synchronisation initiale est complète
  */
 export function isInitialSyncDone() {
@@ -130,8 +148,8 @@ export function addArticle(category, id, url) {
 export function addArticles(articles) {
     let added = 0;
     const insert = db.prepare(`
-    INSERT OR IGNORE INTO netmarble_articles (category, id, url)
-    VALUES (?, ?, ?)
+    INSERT OR IGNORE INTO netmarble_articles (category, id, url, sent_at)
+    VALUES (?, ?, ?, NULL)
   `);
     const transaction = db.transaction((items) => {
         for (const article of items) {
@@ -145,6 +163,41 @@ export function addArticles(articles) {
         log.info({ added, total: articles.length }, 'Articles ajoutés en batch');
     }
     return added;
+}
+/**
+ * Marque un article comme envoyé avec succès
+ */
+export function markArticleAsSent(category, id) {
+    try {
+        db.prepare(`
+      UPDATE netmarble_articles
+      SET sent_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE category = ? AND id = ?
+    `).run(category, id);
+    }
+    catch (e) {
+        log.error({ error: e, category, id }, 'Erreur marquage article envoyé');
+    }
+}
+/**
+ * Récupère tous les articles non envoyés (sent_at IS NULL)
+ */
+export function getUnsentArticles() {
+    // S'assurer que la colonne sent_at existe
+    ensureSentAtColumnExists();
+    try {
+        const rows = db.prepare(`
+      SELECT id, category, url, seen_at
+      FROM netmarble_articles
+      WHERE sent_at IS NULL
+      ORDER BY seen_at ASC
+    `).all();
+        return rows;
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur récupération articles non envoyés');
+        return [];
+    }
 }
 /**
  * Récupère les N derniers articles d'une catégorie

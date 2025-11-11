@@ -26,7 +26,7 @@ import { runMigrations } from './db/init.js';
 
 // Jobs
 import { registerWeeklyResetJob } from './jobs/crWeeklyReset.js';
-import { registerScrapeJob } from './jobs/scrapeNetmarble.js';
+import { registerScrapeJob, retryUnsentArticles } from './jobs/scrapeNetmarble.js';
 import { startAbsenceCleanup, cleanupOnce } from './jobs/absences.js';
 import { registerYTWatchJob } from './jobs/ytWatch.js';
 import { loadNotifs, ensurePresetNotifs, reloadAllNotifs } from './jobs/notifs.js';
@@ -94,6 +94,9 @@ async function main() {
     registerWeeklyResetJob(client);
     registerScrapeJob(client);
     registerYTWatchJob(client);
+    
+    // Republier les articles Netmarble non envoyés (au démarrage)
+    await retryUnsentArticles(client);
     
     // Nettoyage absences
     await cleanupOnce();
