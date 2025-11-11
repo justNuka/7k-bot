@@ -125,10 +125,22 @@ export async function scrapeOnceAndNotify(client: any) {
       
       const emb = new EmbedBuilder()
         .setColor(color)
-        .setTitle(`${emoji} **${label}** — Nouveau post`)
+        .setTitle(`${emoji} Nouveau post #${p.id}`)
         .setURL(p.url)
-        .setDescription(`Un nouveau post a été publié dans la catégorie **${label}**.\n\n[📖 Lire l'article complet](${p.url})`)
-        .setFooter({ text: `Catégorie: ${label} • Seven Knights Re:BIRTH` })
+        .setDescription(
+          `**Catégorie:** ${label}\n\n` +
+          `Un nouveau post a été publié sur le forum officiel de Seven Knights Re:BIRTH.\n\n` +
+          `**[📖 Cliquez ici pour lire l'article complet →](${p.url})**`
+        )
+        .addFields({
+          name: '🔗 Lien direct',
+          value: `[${p.url}](${p.url})`,
+          inline: false
+        })
+        .setFooter({ 
+          text: `${label} • Seven Knights Re:BIRTH`, 
+          iconURL: 'https://sgimage.netmarble.com/images/netmarble/tskgb/20250908/vqew1757311454668.png'
+        })
         .setTimestamp(new Date());
       
       await sendToChannel(client, channelId, { content, embeds: [emb] });
