@@ -181,8 +181,9 @@ export function markArticleAsSent(category, id) {
 }
 /**
  * Récupère tous les articles non envoyés (sent_at IS NULL)
+ * Limite à 5 articles maximum pour éviter le spam au redémarrage
  */
-export function getUnsentArticles() {
+export function getUnsentArticles(limit = 5) {
     // S'assurer que la colonne sent_at existe
     ensureSentAtColumnExists();
     try {
@@ -190,13 +191,33 @@ export function getUnsentArticles() {
       SELECT id, category, url, seen_at
       FROM netmarble_articles
       WHERE sent_at IS NULL
-      ORDER BY seen_at ASC
-    `).all();
+      ORDER BY seen_at DESC
+      LIMIT ?
+    `).all(limit);
         return rows;
     }
     catch (e) {
         log.error({ error: e }, 'Erreur récupération articles non envoyés');
         return [];
+    }
+}
+/**
+ * Compte le nombre total d'articles non envoyés
+ */
+export function countUnsentArticles() {
+    // S'assurer que la colonne sent_at existe
+    ensureSentAtColumnExists();
+    try {
+        const row = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM netmarble_articles
+      WHERE sent_at IS NULL
+    `).get();
+        return row?.count || 0;
+    }
+    catch (e) {
+        log.error({ error: e }, 'Erreur comptage articles non envoyés');
+        return 0;
     }
 }
 /**

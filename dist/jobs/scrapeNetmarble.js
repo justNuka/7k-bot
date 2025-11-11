@@ -34,13 +34,20 @@ export async function retryUnsentArticles(client) {
         log.warn('Pas de canal configuré pour republier les articles non envoyés');
         return;
     }
-    const { getUnsentArticles, markArticleAsSent } = await import('../db/netmarble.js');
-    const unsentArticles = getUnsentArticles();
-    if (unsentArticles.length === 0) {
+    const { getUnsentArticles, countUnsentArticles, markArticleAsSent } = await import('../db/netmarble.js');
+    const totalUnsent = countUnsentArticles();
+    const limit = 5;
+    const unsentArticles = getUnsentArticles(limit);
+    if (totalUnsent === 0) {
         log.info('Aucun article non envoyé à republier');
         return;
     }
-    log.info({ count: unsentArticles.length }, `📬 Republication de ${unsentArticles.length} articles non envoyés`);
+    const skipped = Math.max(0, totalUnsent - limit);
+    log.info({
+        total: totalUnsent,
+        toRetry: unsentArticles.length,
+        skipped
+    }, `📬 Republication de ${unsentArticles.length}/${totalUnsent} articles non envoyés${skipped > 0 ? ` (${skipped} ignorés)` : ''}`);
     for (const article of unsentArticles) {
         try {
             const cat = article.category;
